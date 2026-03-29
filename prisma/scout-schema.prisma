@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/scout-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("SCOUT_DATABASE_URL")
+}
+
+// Scout can READ interests
+model Interest {
+  id          String   @id @default(cuid())
+  userId      String
+  topic       String
+  description String?
+  score       Float    @default(1.0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sources InterestSource[]
+
+  @@unique([userId, topic])
+  @@index([isActive])
+}
+
+// Scout can READ sources
+model Source {
+  id          String      @id @default(cuid())
+  name        String
+  url         String      @unique
+  type        SourceType  @default(WEB)
+  trustScore  Float       @default(0.5)
+  isActive    Boolean     @default(true)
+  crawlMethod CrawlMethod @default(CHEERIO)
+  rssUrl      String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  interests InterestSource[]
+  articles  Article[]
+
+  @@index([isActive])
+}
+
+enum SourceType {
+  WEB
+  RSS
+  API
+}
+
+enum CrawlMethod {
+  CHEERIO
+  PLAYWRIGHT
+}
+
+// Scout can READ junction table
+model InterestSource {
+  id         String   @id @default(cuid())
+  interestId String
+  sourceId   String
+  createdAt  DateTime @default(now())
+
+  interest Interest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+  source   Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([interestId, sourceId])
+}
+
+// Scout can INSERT articles
+model Article {
+  id          String        @id @default(cuid())
+  sourceId    String
+  url         String        @unique
+  title       String
+  rawFilePath String?
+  status      ArticleStatus @default(SCRAPED)
+  scrapedAt   DateTime      @default(now())
+  analyzedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([scrapedAt])
+  @@index([status])
+  @@index([createdAt])
+  @@index([sourceId, scrapedAt])
+}
+
+enum ArticleStatus {
+  SCRAPED
+  ANALYZING
+  SUMMARIZED
+  POSTED
+  FAILED
+}
