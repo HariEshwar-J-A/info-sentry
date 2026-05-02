@@ -62,6 +62,23 @@ async function main(): Promise<void> {
 
   const db = getOpenClawDb();
 
+  // Idempotency: if summary already exists, return it without re-running LLM
+  const existingSummary = await db.summary.findUnique({
+    where: { articleId },
+    select: { id: true, keyTopics: true, sentimentScore: true, relevanceScore: true, chromaId: true },
+  });
+  if (existingSummary) {
+    console.log(JSON.stringify({
+      summaryId: existingSummary.id,
+      chromaId: existingSummary.chromaId ?? `summary_${articleId}`,
+      keyTopics: existingSummary.keyTopics,
+      sentimentScore: existingSummary.sentimentScore ?? 0,
+      relevanceScore: existingSummary.relevanceScore ?? 0,
+    }));
+    await disconnectAll();
+    return;
+  }
+
   // 1. Get article
   const article = await db.article.findUniqueOrThrow({
     where: { id: articleId },
@@ -91,7 +108,28 @@ async function main(): Promise<void> {
 
   await logCost("analyst", MODELS.ANALYST, response.promptTokens, response.completionTokens, response.generationId);
 
-  const analysis: AnalystLLMResponse = JSON.parse(response.content);
+  // Robust JSON parsing - extract JSON from markdown code blocks if present
+  let jsonText = response.content;
+  const jsonMatch = response.content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch?.[1]) {
+    jsonText = jsonMatch[1].trim();
+  }
+  // Also try to find JSON between curly braces
+  const braceMatch = jsonText.match(/\{[\s\S]*\}/);
+  if (braceMatch) {
+    jsonText = braceMatch[0];
+  }
+  
+  let analysis: AnalystLLMResponse;
+  try {
+    analysis = JSON.parse(jsonText);
+  } catch (parseErr) {
+    console.error("[analyst] Failed to parse LLM response as JSON:", parseErr);
+    console.error("[analyst] Raw response:", response.content.slice(0, 500));
+    // Mark article as failed
+    await db.article.update({ where: { id: articleId }, data: { status: "FAILED" } });
+    throw new Error(`JSON parse failed: ${parseErr}`);
+  }
 
   // 5. Update source trust
   const source = await db.source.findUniqueOrThrow({
@@ -116,21 +154,25 @@ async function main(): Promise<void> {
 
   await db.article.update({ where: { id: articleId }, data: { status: "SUMMARIZED", analyzedAt: new Date() } });
 
-  // 7. ChromaDB upsert
-  const chroma = getChromaClient();
-  const collection = await chroma.getCollection({ name: COLLECTIONS.ARTICLE_SUMMARIES });
-  await collection.upsert({
-    ids: [chromaId],
-    documents: [analysis.summary],
-    metadatas: [{
-      articleId,
-      summaryId: summary.id,
-      topics: analysis.keyTopics.join(","),
-      sentimentScore: analysis.sentimentScore,
-      relevanceScore: analysis.relevanceScore,
-      createdAt: new Date().toISOString(),
-    }],
-  });
+  // 7. ChromaDB upsert (optional - continues if embeddings unavailable)
+  try {
+    const chroma = getChromaClient();
+    const collection = await chroma.getCollection({ name: COLLECTIONS.ARTICLE_SUMMARIES });
+    await collection.upsert({
+      ids: [chromaId],
+      documents: [analysis.summary],
+      metadatas: [{
+        articleId,
+        summaryId: summary.id,
+        topics: analysis.keyTopics.join(","),
+        sentimentScore: analysis.sentimentScore,
+        relevanceScore: analysis.relevanceScore,
+        createdAt: new Date().toISOString(),
+      }],
+    });
+  } catch (err) {
+    console.warn("[analyst] ChromaDB upsert skipped:", (err as Error).message);
+  }
 
   const result = {
     summaryId: summary.id,

@@ -2,6 +2,14 @@ node_modules/
 dist/
 .env
 logs/
-data/articles/
 *.log
 *.tsbuildinfo
+
+# All runtime-generated data (articles, chromadb, etc.)
+data/
+
+# Local storage
+storage/
+
+# OpenClaw skill cache
+skills/

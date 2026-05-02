@@ -83,7 +83,13 @@ function parseArgs(argv: string[]): Record<string, string> {
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv);
-  const text = flags["text"];
+  let text = flags["text"];
+  // Support reading text from stdin for multiline
+  if (!text && !process.stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    text = Buffer.concat(chunks).toString('utf-8').trim();
+  }
   if (!text) {
     console.error("Missing required flag: --text");
     process.exit(1);

@@ -1,6 +1,6 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../node_modules/@prisma/openclaw-client"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -160,6 +160,70 @@ enum PredictionStatus {
   EXPIRED
 }
 
+// ─── MediaContent (Video/Audio transcripts) ─────────────────
+model MediaContent {
+  id           String    @id @default(cuid())
+  articleId    String
+  type         MediaType
+  url          String
+  title        String?
+  duration     String?
+  transcript   String?
+  extractedAt  DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+
+  @@index([articleId, type])
+  @@index([createdAt])
+}
+
+enum MediaType {
+  VIDEO
+  AUDIO
+  PODCAST
+}
+
+// ─── Validation Queue (Human-in-the-loop) ───────────────────
+model ValidationQueue {
+  id           String           @id @default(cuid())
+  predictionId String
+  articleId    String
+  summary      String
+  predictions  Json
+  confidence   Float
+  status       ValidationStatus @default(PENDING)
+  submittedAt  DateTime         @default(now())
+  resolvedAt   DateTime?
+  postedAt     DateTime?
+  resolvedBy   String?
+
+  @@index([status])
+  @@index([submittedAt])
+  @@index([confidence])
+}
+
+enum ValidationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  AUTO_APPROVED
+}
+
+// ─── Prediction Outcome Tracking ────────────────────────────
+model PredictionOutcome {
+  id              String    @id @default(cuid())
+  predictionId    String
+  expectedOutcome String
+  actualOutcome   String?
+  accuracyScore   Float?
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  @@index([predictionId])
+  @@index([verifiedAt])
+}
+
 // ─── ChatMessage ────────────────────────────────────────────
 model ChatMessage {
   id        String      @id @default(cuid())
@@ -206,6 +270,21 @@ model CostLog {
 
   @@index([agentName, createdAt])
   @@index([createdAt])
+}
+
+// ─── Budget Status ──────────────────────────────────────────
+model BudgetStatus {
+  id             String   @id @default(cuid())
+  month          Int
+  year           Int
+  budgetUsd      Float
+  spentUsd       Float    @default(0)
+  dailyBudgetUsd Float
+  currentTier    Int      @default(2)
+  lastCheckAt    DateTime @default(now())
+  alertsSent     String[] @default([])
+
+  @@unique([year, month])
 }
 
 // ─── ForumTopic ─────────────────────────────────────────────
