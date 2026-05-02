@@ -2,11 +2,11 @@
   "$schema": "https://openclaw.dev/schema/v1/openclaw.json",
   "version": "1.0",
   "name": "info-sentry",
-  "description": "Personal news intelligence system with 5 AI agents",
+  "description": "Personal news intelligence system — slave agent under Vision (master at :18789)",
 
   "gateway": {
     "host": "127.0.0.1",
-    "port": 18789
+    "port": 18790
   },
 
   "providers": {
@@ -15,13 +15,17 @@
       "base_url": "https://openrouter.ai/api/v1",
       "api_key_env": "OPENROUTER_API_KEY",
       "default_headers": {
-        "HTTP-Referer": "https://github.com/info-sentry",
+        "HTTP-Referer": "https://github.com/HariEshwar-J-A/info-sentry",
         "X-Title": "Info-Sentry"
       }
     }
   },
 
   "models": {
+    "kimi-k2.6": {
+      "provider": "openrouter",
+      "model_id": "moonshotai/kimi-k2.6"
+    },
     "deepseek-v3": {
       "provider": "openrouter",
       "model_id": "deepseek/deepseek-v3.2"
@@ -39,9 +43,31 @@
   },
 
   "agents": {
+    "coder": {
+      "soul": "agents/coder.md",
+      "model": "kimi-k2.6",
+      "tools": {
+        "exec": {
+          "enabled": true,
+          "exec_ask": false,
+          "allowed_commands": [
+            "npx tsc --noEmit",
+            "npx tsx scripts/*.ts *",
+            "npm run *",
+            "git status",
+            "git diff *",
+            "git log --oneline *",
+            "git add *",
+            "git commit *",
+            "git push *"
+          ]
+        }
+      }
+    },
+
     "manager": {
-      "soul": "agents/manager/SOUL.md",
-      "model": "gemini-flash",
+      "soul": "agents/manager.md",
+      "model": "deepseek-v3",
       "binding": {
         "type": "telegram",
         "chat_id_env": "TELEGRAM_ADMIN_ID",
@@ -54,15 +80,16 @@
           "allowed_commands": [
             "npx tsx scripts/health-check.ts",
             "npx tsx scripts/budget-check.ts",
-            "npx tsx scripts/db-query.ts *"
+            "npx tsx scripts/db-query.ts *",
+            "npx tsx scripts/system-log-post.ts"
           ]
         }
       }
     },
 
     "feedback": {
-      "soul": "agents/feedback/SOUL.md",
-      "model": "gemini-flash",
+      "soul": "agents/feedback.md",
+      "model": "deepseek-v3",
       "binding": {
         "type": "telegram",
         "chat_id_env": "TELEGRAM_SUPERGROUP_ID",
@@ -81,12 +108,12 @@
     },
 
     "scout": {
-      "soul": "agents/scout/SOUL.md",
+      "soul": "agents/scout.md",
       "model": "gemini-flash",
       "tools": {
         "exec": {
           "enabled": true,
-          "exec_ask": true,
+          "exec_ask": false,
           "allowed_commands": [
             "npx tsx scripts/scout-run.ts"
           ]
@@ -95,12 +122,12 @@
     },
 
     "analyst": {
-      "soul": "agents/analyst/SOUL.md",
+      "soul": "agents/analyst.md",
       "model": "deepseek-v3",
       "tools": {
         "exec": {
           "enabled": true,
-          "exec_ask": true,
+          "exec_ask": false,
           "allowed_commands": [
             "npx tsx scripts/pipeline-run.ts"
           ]
@@ -109,12 +136,12 @@
     },
 
     "prediction": {
-      "soul": "agents/prediction/SOUL.md",
+      "soul": "agents/prediction.md",
       "model": "deepseek-v3",
       "tools": {
         "exec": {
           "enabled": true,
-          "exec_ask": true,
+          "exec_ask": false,
           "allowed_commands": [
             "npx tsx scripts/prediction-process.ts *"
           ]
