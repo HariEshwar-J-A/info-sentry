@@ -288,6 +288,136 @@ Key models in `prisma/schema.prisma`:
 
 ---
 
+## Configuration Reference
+
+All configuration lives in **four files**. Here's where to change every key and endpoint.
+
+---
+
+### 1. Application Environment — `.env` (dev) / LaunchAgent plist (prod)
+
+For local development, edit `.env` in the repo root. For production (LaunchAgent), edit the same keys in `~/Library/LaunchAgents/ai.openclaw.info-sentry.plist` under `<key>EnvironmentVariables</key>`.
+
+| Variable | Where used | What to change |
+|----------|-----------|----------------|
+| `DATABASE_URL` | All scripts, Prisma | PostgreSQL host, port, DB name, user, password |
+| `SCOUT_DATABASE_URL` | `scout-run.ts` | Same as above but with a restricted `scout_role` |
+| `OPENROUTER_API_KEY` | All LLM calls | New key from [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `TELEGRAM_BOT_TOKEN` | Gateway Telegram provider, `telegram-bot.ts` | Token from @BotFather for the newsletter bot |
+| `TELEGRAM_ADMIN_ID` | Manager agent DM binding, scripts | Your numeric Telegram user ID |
+| `TELEGRAM_SUPERGROUP_ID` | Pipeline posts, feedback agent | Supergroup chat ID (starts with `-100`) |
+| `CHROMA_URL` | `prediction-process.ts` | ChromaDB host + port (default `http://localhost:8000`) |
+| `CHROMADB_ENABLED` | `prediction-process.ts` | `true`/`false` — disables ChromaDB context if false |
+| `MONTHLY_BUDGET_USD` | `models.ts`, `budget-check.ts` | Hard monthly spend cap |
+| `DAILY_BUDGET_USD` | `system-log-post.ts` | Used for daily burn rate projection |
+| `ARTICLES_DIR` | `scout-run.ts`, `analyst-process.ts` | Path to scraped article JSON files |
+| `AUTO_APPROVE_PREDICTIONS` | `validation-queue.ts` | `true` = skip human review for high-confidence predictions |
+| `PREDICTION_CONFIDENCE_THRESHOLD` | `validation-queue.ts` | Float 0–1; predictions above this are auto-approvable |
+
+**To update for production**, open the plist:
+```bash
+nano ~/Library/LaunchAgents/ai.openclaw.info-sentry.plist
+# After editing:
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.info-sentry.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.info-sentry.plist
+```
+
+---
+
+### 2. OpenClaw Gateway Config — `openclaw.json` (repo root)
+
+Controls the slave gateway's structure: models, agents, bindings, cron.
+
+| Key path | What to change |
+|----------|---------------|
+| `gateway.host` / `gateway.port` | Gateway bind address and port (default `127.0.0.1:18790`) |
+| `providers.openrouter.base_url` | OpenRouter API endpoint (rarely changes) |
+| `providers.openrouter.api_key_env` | Env var name holding the OpenRouter key |
+| `models.<alias>.model_id` | Swap the underlying model for any agent (e.g. upgrade Kimi, switch to Claude) |
+| `agents.<name>.model` | Which model alias an agent uses |
+| `agents.<name>.soul` | Path to the agent's personality markdown file |
+| `agents.coder.tools.exec.allowed_commands` | Shell commands the coder agent is permitted to run |
+| `agents.manager.binding.chat_id_env` | Env var for the admin DM Telegram chat ID |
+| `agents.feedback.binding.chat_id_env` | Env var for the supergroup Telegram chat ID |
+| `bindings.telegram.bot_token_env` | Env var name for the Telegram bot token |
+| `cron` | Path to the cron jobs file |
+
+**To change a model** (e.g. upgrade DeepSeek):
+```jsonc
+// openclaw.json
+"models": {
+  "deepseek-v3": {
+    "provider": "openrouter",
+    "model_id": "deepseek/deepseek-r2"   // ← change here
+  }
+}
+```
+
+Then restart the gateway. All agents using `"model": "deepseek-v3"` pick up the change automatically.
+
+---
+
+### 3. OpenClaw Profile Config — `~/.openclaw-info-sentry/openclaw.json`
+
+This is the profile-level config used when the gateway starts with `--profile info-sentry`. It supplements `openclaw.json` in the repo.
+
+| Key path | What to change |
+|----------|---------------|
+| `agents.defaults.workspace` | Working directory for the slave gateway |
+| `agents.defaults.models` | Model aliases and display names visible in the UI |
+| `agents.defaults.model.primary` | Default model for the master agent session |
+| `gateway.port` | Must match the LaunchAgent plist port |
+| `gateway.auth.token` | Auth token for connecting desktop app / Vision to this slave |
+| `channels.telegram.enabled` | Toggle Telegram polling on/off |
+| `channels.telegram.groups["*"].requireMention` | `false` = Feedback agent responds to all messages; `true` = only when @mentioned |
+| `session.dmScope` | Session isolation: `per-channel-peer` means each Telegram user gets their own session |
+
+**To connect Vision (master) to this slave**:
+1. The `gateway.auth.token` here is what Vision uses as the auth credential
+2. Configure Vision to delegate to `http://127.0.0.1:18790` with that token
+
+---
+
+### 4. Cron Schedule — `cron/jobs.json`
+
+Controls when each pipeline job fires. Uses standard cron syntax.
+
+| Job name | Default schedule | What it does |
+|----------|-----------------|-------------|
+| `scout-hourly` | `0 * * * *` (every hour at :00) | Scrape news sources |
+| `pipeline-hourly` | `15 * * * *` (every hour at :15) | Analyse + predict + post to Telegram |
+| `system-log` | `*/30 * * * *` (every 30 min) | Health snapshot to System-Log topic |
+| `budget-check` | `0 */6 * * *` (every 6h) | Budget burn rate report |
+| `auto-approve-high-confidence` | `0 10 * * *` (daily 10 AM) | Auto-approve confident predictions |
+| `daily-digest` | `0 9 * * *` (daily 9 AM) | Daily digest summary |
+
+**To change frequency** (e.g. run pipeline every 2 hours instead of hourly):
+```jsonc
+// cron/jobs.json
+{ "name": "pipeline-hourly", "schedule": "15 */2 * * *", ... }
+```
+
+Changes take effect on the next gateway restart.
+
+---
+
+### 5. Agent Personalities — `agents/*.md`
+
+Each file defines one agent's behaviour, tone, and decision rules.
+
+| File | Agent | When to edit |
+|------|-------|-------------|
+| `agents/coder.md` | Kimi K2.6 | Change coding conventions, git rules, allowed scope |
+| `agents/manager.md` | DeepSeek V3.2 | Change health thresholds, DM response style, budget escalation rules |
+| `agents/feedback.md` | DeepSeek V3.2 | Change interest management commands, tone, supergroup behaviour |
+| `agents/analyst.md` | DeepSeek V3.2 | Change summary format, sentiment scoring criteria |
+| `agents/prediction.md` | DeepSeek V3.2 | Change prediction horizon, confidence rules, ChromaDB query depth |
+| `agents/scout.md` | Gemini Flash Lite | Change scraping heuristics, content filters |
+
+Agents reload their soul on the next conversation turn — no restart needed for soul-only changes.
+
+---
+
 ## OpenClaw Known Issues & CVEs
 
 | Issue | Mitigation |
