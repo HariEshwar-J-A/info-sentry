@@ -25,14 +25,15 @@ model User {
 
 // ─── Interest ───────────────────────────────────────────────
 model Interest {
-  id          String   @id @default(cuid())
-  userId      String
-  topic       String
-  description String?
-  score       Float    @default(1.0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  userId         String
+  topic          String
+  description    String?
+  score          Float    @default(1.0)
+  isActive       Boolean  @default(true)
+  searchKeywords String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   sources InterestSource[]
@@ -87,24 +88,29 @@ model InterestSource {
 
 // ─── Article ────────────────────────────────────────────────
 model Article {
-  id          String        @id @default(cuid())
-  sourceId    String
-  url         String        @unique
-  title       String
-  rawFilePath String?
-  status      ArticleStatus @default(SCRAPED)
-  scrapedAt   DateTime      @default(now())
-  analyzedAt  DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id             String         @id @default(cuid())
+  sourceId       String
+  url            String         @unique
+  title          String
+  rawFilePath    String?
+  status         ArticleStatus  @default(SCRAPED)
+  publishedAt    DateTime?
+  dateConfidence DateConfidence @default(UNKNOWN)
+  ageHours       Float?
+  scrapedAt      DateTime       @default(now())
+  analyzedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  source      Source       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source      Source         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   summary     Summary?
   predictions Prediction[]
+  insight     ArticleInsight?
 
   @@index([scrapedAt])
   @@index([status])
   @@index([createdAt])
+  @@index([publishedAt])
   @@index([sourceId, scrapedAt])
 }
 
@@ -114,6 +120,12 @@ enum ArticleStatus {
   SUMMARIZED
   POSTED
   FAILED
+}
+
+enum DateConfidence {
+  EXTRACTED
+  INFERRED
+  UNKNOWN
 }
 
 // ─── Summary ────────────────────────────────────────────────
@@ -134,22 +146,28 @@ model Summary {
 
 // ─── Prediction ─────────────────────────────────────────────
 model Prediction {
-  id              String           @id @default(cuid())
-  articleId       String
-  content         String
-  confidence      Float
-  timeHorizon     String?
-  status          PredictionStatus @default(PENDING)
-  telegramMsgId   Int?
-  telegramTopicId Int?
-  createdAt       DateTime         @default(now())
-  resolvedAt      DateTime?
-  outcome         String?
+  id                 String           @id @default(cuid())
+  articleId          String
+  content            String
+  confidence         Float
+  timeHorizon        String?
+  status             PredictionStatus @default(PENDING)
+  telegramMsgId      Int?
+  telegramTopicId    Int?
+  trackedByUser      Boolean          @default(false)
+  trackedAt          DateTime?
+  userNotes          String?
+  dueDate            DateTime?
+  resolutionAnalysis String?
+  createdAt          DateTime         @default(now())
+  resolvedAt         DateTime?
+  outcome            String?
 
   article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([createdAt])
+  @@index([trackedByUser])
 }
 
 enum PredictionStatus {
@@ -160,17 +178,60 @@ enum PredictionStatus {
   EXPIRED
 }
 
+// ─── ArticleInsight (user chat metadata per article) ────────
+model ArticleInsight {
+  id            String   @id @default(cuid())
+  articleId     String   @unique
+  userId        String
+  chatSummary   String?
+  userSentiment String?
+  keywords      String[] @default([])
+  rawChatLog    Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([articleId])
+}
+
+// ─── WebChatSession (persistent web AI chat) ────────────────
+model WebChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages WebChatMessage[]
+
+  @@index([userId, createdAt])
+}
+
+model WebChatMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  role      MessageRole
+  content   String
+  createdAt DateTime    @default(now())
+
+  session WebChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
 // ─── MediaContent (Video/Audio transcripts) ─────────────────
 model MediaContent {
-  id           String    @id @default(cuid())
-  articleId    String
-  type         MediaType
-  url          String
-  title        String?
-  duration     String?
-  transcript   String?
-  extractedAt  DateTime  @default(now())
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(cuid())
+  articleId   String
+  type        MediaType
+  url         String
+  title       String?
+  duration    String?
+  transcript  String?
+  extractedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([articleId, type])
   @@index([createdAt])
@@ -224,7 +285,7 @@ model PredictionOutcome {
   @@index([verifiedAt])
 }
 
-// ─── ChatMessage ────────────────────────────────────────────
+// ─── ChatMessage (Telegram bot history) ─────────────────────
 model ChatMessage {
   id        String      @id @default(cuid())
   userId    String

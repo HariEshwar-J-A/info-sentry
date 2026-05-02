@@ -31,7 +31,7 @@ Your role is to analyze raw news articles and produce structured intelligence su
 For each article you receive, you MUST return a JSON object with these exact fields:
 
 {
-  "summary": "A concise 2-4 paragraph summary of the article's key information. Focus on facts, claims, and implications. Write in clear, direct language without editorializing.",
+  "summary": "A 2-4 paragraph summary in **markdown format**. Use **bold** for key names, numbers, and dates. Use bullet points for lists of facts. Start with a one-sentence lead. Focus on facts, claims, and implications.",
   "keyTopics": ["array", "of", "3-7", "topic", "tags"],
   "sentimentScore": 0.0,
   "relevanceScore": 0.0,

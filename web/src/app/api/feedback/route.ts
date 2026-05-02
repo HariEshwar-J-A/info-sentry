@@ -11,7 +11,7 @@ interface FeedbackBody {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as FeedbackBody
-    const { articleId: _articleId, type, topics } = body
+    const { articleId, type, topics } = body
 
     if (!type || !['like', 'dislike'].includes(type)) {
       return NextResponse.json({ error: 'Invalid feedback type' }, { status: 400 })
@@ -19,29 +19,35 @@ export async function POST(request: Request) {
 
     const scoreDelta = type === 'like' ? 0.2 : -0.1
 
-    // Update interest scores for each topic in the article
+    // Update interest scores + searchKeywords feedback loop
     if (topics && topics.length > 0) {
       await Promise.all(
         topics.map(async (topic) => {
           const existing = await prisma.interest.findUnique({
             where: { userId_topic: { userId: OWNER_USER_ID, topic } },
+            select: { id: true, score: true, searchKeywords: true },
           })
 
           if (existing) {
+            const newKeywords = type === 'like'
+              ? [...new Set([...existing.searchKeywords, ...topics.filter((t) => t !== topic)])].slice(0, 20)
+              : existing.searchKeywords
+
             await prisma.interest.update({
               where: { userId_topic: { userId: OWNER_USER_ID, topic } },
               data: {
                 score: Math.max(0.1, Math.min(10, existing.score + scoreDelta)),
+                searchKeywords: newKeywords,
               },
             })
           } else if (type === 'like') {
-            // Create new interest when explicitly liked
             await prisma.interest.create({
               data: {
                 userId: OWNER_USER_ID,
                 topic,
                 score: 1.0 + scoreDelta,
                 isActive: true,
+                searchKeywords: topics.filter((t) => t !== topic).slice(0, 10),
               },
             })
           }
@@ -49,12 +55,30 @@ export async function POST(request: Request) {
       )
     }
 
+    // Store explicit sentiment in ArticleInsight
+    if (articleId) {
+      try {
+        await prisma.articleInsight.upsert({
+          where: { articleId },
+          create: {
+            articleId,
+            userId: OWNER_USER_ID,
+            userSentiment: type === 'like' ? 'positive' : 'negative',
+            keywords: topics,
+          },
+          update: {
+            userSentiment: type === 'like' ? 'positive' : 'negative',
+            updatedAt: new Date(),
+          },
+        })
+      } catch {
+        // Non-fatal — insight is best-effort
+      }
+    }
+
     return NextResponse.json({ success: true, delta: scoreDelta })
   } catch (error) {
     console.error('Feedback API error:', error)
-    return NextResponse.json(
-      { error: 'Failed to save feedback' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to save feedback' }, { status: 500 })
   }
 }

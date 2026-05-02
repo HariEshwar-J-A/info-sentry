@@ -47,10 +47,21 @@ function SparklesIcon() {
   )
 }
 
+function TargetIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  )
+}
+
 const navItems: NavItem[] = [
   { href: '/feed', label: 'Feed', icon: <RssIcon /> },
   { href: '/chat', label: 'Chat', icon: <ChatIcon /> },
   { href: '/topics', label: 'Topics', icon: <TagIcon /> },
+  { href: '/predictions', label: 'Predictions', icon: <TargetIcon /> },
   { href: '/surprise', label: 'Surprise Me', icon: <SparklesIcon /> },
 ]
 

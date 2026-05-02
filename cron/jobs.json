@@ -10,16 +10,16 @@
     },
     {
       "name": "scout-hourly",
-      "schedule": "0 * * * *",
-      "description": "Scout run every hour at :00",
+      "schedule": "*/30 * * * *",
+      "description": "Scout run every 30 minutes for fresh articles",
       "agent": "scout",
       "exec": "npx tsx scripts/scout-run.ts",
       "condition": "budgetCheck"
     },
     {
       "name": "pipeline-hourly",
-      "schedule": "15 * * * *",
-      "description": "Process scraped articles every hour at :15 (after scout)",
+      "schedule": "10,40 * * * *",
+      "description": "Process scraped articles at :10 and :40 (after each scout run)",
       "agent": "analyst",
       "exec": "npx tsx scripts/pipeline-run.ts",
       "condition": "budgetCheck"

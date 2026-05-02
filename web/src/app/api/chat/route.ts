@@ -5,6 +5,7 @@ import { OWNER_USER_ID } from '@/lib/user'
 interface ChatBody {
   message: string
   history: { role: 'user' | 'assistant'; content: string }[]
+  sessionId?: string
 }
 
 async function buildSystemPrompt(): Promise<string> {
@@ -97,13 +98,14 @@ ${predictionList || 'No pending predictions.'}
 - Reference specific articles by source when making claims
 - If asked about something not covered in the articles, say so clearly
 - Use markdown formatting for clarity when helpful (lists, bold text)
-- Be direct and analytical — the user values intelligence over pleasantries`
+- Be direct and analytical — the user values intelligence over pleasantries
+- Format ALL responses as rich markdown: use ## for section headers, **bold** for key terms/names/numbers, bullet points for lists. Never write unformatted prose.`
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatBody
-    const { message, history = [] } = body
+    const { message, history = [], sessionId: incomingSessionId } = body
 
     if (!message?.trim()) {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
@@ -111,6 +113,29 @@ export async function POST(request: Request) {
         headers: { 'Content-Type': 'application/json' },
       })
     }
+
+    // Session management
+    let sessionId = incomingSessionId ?? null
+
+    if (!sessionId) {
+      const session = await prisma.webChatSession.create({
+        data: {
+          userId: OWNER_USER_ID,
+          title: message.slice(0, 60),
+        },
+      })
+      sessionId = session.id
+    } else {
+      const existing = await prisma.webChatSession.findUnique({ where: { id: sessionId } })
+      if (!existing) {
+        return new Response(JSON.stringify({ error: 'Session not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+    }
+
+    const finalSessionId = sessionId
 
     const systemPrompt = await buildSystemPrompt()
 
@@ -128,6 +153,7 @@ export async function POST(request: Request) {
     })
 
     const encoder = new TextEncoder()
+    let fullResponse = ''
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -135,10 +161,24 @@ export async function POST(request: Request) {
           for await (const chunk of stream) {
             const token = chunk.choices[0]?.delta?.content ?? ''
             if (token) {
+              fullResponse += token
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`))
             }
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+
+          // Persist messages after streaming completes
+          await prisma.webChatMessage.createMany({
+            data: [
+              { sessionId: finalSessionId, role: 'USER', content: message },
+              { sessionId: finalSessionId, role: 'ASSISTANT', content: fullResponse },
+            ],
+          })
+          // Update session updatedAt
+          await prisma.webChatSession.update({
+            where: { id: finalSessionId },
+            data: { updatedAt: new Date() },
+          })
         } catch (err) {
           console.error('Stream error:', err)
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
@@ -154,6 +194,7 @@ export async function POST(request: Request) {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no',
+        'X-Session-Id': finalSessionId,
       },
     })
   } catch (error) {

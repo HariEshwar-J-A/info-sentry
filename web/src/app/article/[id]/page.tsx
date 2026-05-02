@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { PredictionCard } from '@/components/article/PredictionCard'
 import { VoiceReader } from '@/components/article/VoiceReader'
+import { ArticleChatPanel } from '@/components/article/ArticleChatPanel'
 import { getArticleDetail } from '@/lib/feed'
 
 type ArticleDetail = NonNullable<Awaited<ReturnType<typeof getArticleDetail>>>
@@ -328,5 +329,10 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
         )}
       </div>
     </div>
+    <ArticleChatPanel
+      articleId={id}
+      articleTitle={article.title}
+      hasExistingInsight={!!('insight' in article && article.insight)}
+    />
   )
 }
