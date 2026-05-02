@@ -40,17 +40,25 @@ function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-async function telegramApi(method: string, body: Record<string, unknown>): Promise<unknown> {
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json()) as { ok: boolean; result?: unknown; description?: string };
-  if (!data.ok) {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function telegramApi(method: string, body: Record<string, unknown>, retries = 3): Promise<unknown> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json()) as { ok: boolean; result?: unknown; description?: string; parameters?: { retry_after?: number } };
+    if (data.ok) return data.result;
+    const retryAfter = data.parameters?.retry_after;
+    if (retryAfter && attempt < retries - 1) {
+      console.warn(`[pipeline] Telegram rate limit — waiting ${retryAfter}s`);
+      await sleep(retryAfter * 1000 + 500);
+      continue;
+    }
     throw new Error(`Telegram API ${method} failed: ${data.description ?? "unknown"}`);
   }
-  return data.result;
 }
 
 async function getTranscriptForArticle(articleId: string): Promise<string | null> {

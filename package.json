@@ -17,7 +17,9 @@
     "pipeline": "tsx scripts/pipeline-run.ts",
     "health": "tsx scripts/health-check.ts",
     "budget": "tsx scripts/budget-check.ts",
-    "db": "tsx scripts/db-query.ts"
+    "db": "tsx scripts/db-query.ts",
+    "bot": "tsx scripts/telegram-bot.ts",
+    "bot:dev": "tsx watch scripts/telegram-bot.ts"
   },
   "dependencies": {
     "@chroma-core/default-embed": "^0.1.9",
