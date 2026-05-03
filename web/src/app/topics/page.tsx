@@ -23,8 +23,11 @@ interface LogLine { type: 'stdout' | 'stderr' | 'system' | 'error'; text: string
 // ─── Log Panel ─────────────────────────────────────────────
 
 function LogPanel({ lines, onClear }: { lines: LogLine[]; onClear: () => void }) {
-  const bottomRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [lines])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [lines])
   if (lines.length === 0) return null
   return (
     <div style={{ backgroundColor: '#050505', border: '1px solid #1a1a1a', borderRadius: '10px', overflow: 'hidden', marginTop: '12px' }}>
@@ -32,13 +35,12 @@ function LogPanel({ lines, onClear }: { lines: LogLine[]; onClear: () => void })
         <span style={{ fontSize: '11px', color: '#555', fontFamily: 'monospace' }}>Seed Output</span>
         <button onClick={onClear} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Clear</button>
       </div>
-      <div style={{ maxHeight: '260px', overflowY: 'auto', padding: '10px 14px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}>
+      <div ref={scrollRef} style={{ maxHeight: '260px', overflowY: 'auto', padding: '10px 14px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}>
         {lines.map((l, i) => (
           <div key={i} style={{ color: l.type === 'error' ? '#ef4444' : l.type === 'stderr' ? '#ef4444' : l.type === 'system' ? '#6366f1' : '#a0a0a0', marginBottom: '1px' }}>
             {l.type === 'system' ? `  ${l.text}` : l.type === 'stderr' ? `✗ ${l.text}` : `  ${l.text}`}
           </div>
         ))}
-        <div ref={bottomRef} />
       </div>
     </div>
   )
