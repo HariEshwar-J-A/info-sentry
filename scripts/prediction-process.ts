@@ -11,7 +11,7 @@
 import "dotenv/config";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { getChromaClient, COLLECTIONS } from "./lib/chromadb.js";
-import { getModelsForCurrentBudget, type ModelConfig } from "./lib/models.js";
+import { getModelsForCurrentBudget, DEEPSEEK_V3, type ModelConfig } from "./lib/models.js";
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
 
@@ -126,21 +126,45 @@ async function main(): Promise<void> {
     console.warn("[prediction] ChromaDB query skipped:", (err as Error).message);
   }
 
-  // 3. LLM call with budget-aware model
-  const systemPrompt = getSystemPrompt(model.tier);
-  const response = await chatCompletion(
-    model.id,
-    [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Current Summary:\n${summary.content}\n\nKey Topics: ${summary.keyTopics.join(", ")}\n\nHistorical Context:\n${historyContext}`,
-      },
-    ],
-    { temperature: 0.5, maxTokens: model.tier >= 3 ? 800 : 1500, responseFormat: { type: "json_object" } },
-  );
+  // 3. LLM call with budget-aware model + fallback chain on empty response
+  const messages: Parameters<typeof chatCompletion>[1] = [
+    { role: "system", content: getSystemPrompt(model.tier) },
+    {
+      role: "user",
+      content: `Current Summary:\n${summary.content}\n\nKey Topics: ${summary.keyTopics.join(", ")}\n\nHistorical Context:\n${historyContext}`,
+    },
+  ];
 
-  await logCost("prediction", model, response.promptTokens, response.completionTokens, response.generationId);
+  // If primary model is tier 1 (Kimi), fall back to DeepSeek V3.2 then tier 3 on empty content
+  const fallbackChain: ModelConfig[] = model.tier === 1
+    ? [model, DEEPSEEK_V3]
+    : [model];
+
+  let response: Awaited<ReturnType<typeof chatCompletion>> | null = null;
+  let usedModel = model;
+
+  for (const candidate of fallbackChain) {
+    try {
+      usedModel = candidate;
+      response = await chatCompletion(
+        candidate.id,
+        messages,
+        { temperature: 0.5, maxTokens: candidate.tier >= 3 ? 800 : 1500, responseFormat: { type: "json_object" } },
+      );
+      break;
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes("Empty response") && candidate !== fallbackChain.at(-1)) {
+        console.warn(`[prediction] ${candidate.name} returned empty — trying fallback`);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (!response) throw new Error("All models in fallback chain returned empty responses");
+
+  await logCost("prediction", usedModel, response.promptTokens, response.completionTokens, response.generationId);
 
   const result: PredictionLLMResponse = JSON.parse(response.content);
 

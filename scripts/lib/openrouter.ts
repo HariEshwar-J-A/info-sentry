@@ -55,7 +55,8 @@ export async function chatCompletion(
 
   const choice = response.choices[0];
   if (!choice?.message?.content) {
-    throw new Error("Empty response from OpenRouter");
+    const reason = choice?.finish_reason ?? "unknown";
+    throw new Error(`Empty response from OpenRouter (finish_reason=${reason}, model=${modelId})`);
   }
 
   return {
