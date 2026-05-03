@@ -26,6 +26,20 @@ interface VerifiedPrediction extends TrackedPrediction {
   createdAt: string
 }
 
+interface AllPrediction {
+  id: string
+  content: string
+  confidence: number
+  timeHorizon: string | null
+  status: string
+  trackedByUser: boolean
+  trackedAt: string | null
+  resolutionAnalysis: string | null
+  viewedAt: string | null
+  createdAt: string
+  article: { id: string; title: string; url: string }
+}
+
 interface Stats {
   total: number
   correct: number
@@ -71,7 +85,8 @@ function AnalysisBlock({ text }: { text: string }) {
 }
 
 export default function PredictionsPage() {
-  const [tab, setTab] = useState<'tracked' | 'verifications' | 'stats'>('tracked')
+  const [tab, setTab] = useState<'all' | 'tracked' | 'verifications' | 'stats'>('all')
+  const [all, setAll] = useState<AllPrediction[]>([])
   const [tracked, setTracked] = useState<TrackedPrediction[]>([])
   const [verified, setVerified] = useState<VerifiedPrediction[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
@@ -79,6 +94,8 @@ export default function PredictionsPage() {
   const [resolving, setResolving] = useState<string | null>(null)
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [allSearch, setAllSearch] = useState('')
+  const [allStatusFilter, setAllStatusFilter] = useState<'all' | 'PENDING' | 'CORRECT' | 'INCORRECT' | 'PARTIALLY_CORRECT'>('all')
 
   // Filters
   const [showUnreadOnly, setShowUnreadOnly] = useState(false)
@@ -86,7 +103,12 @@ export default function PredictionsPage() {
 
   useEffect(() => {
     setLoading(true)
-    if (tab === 'tracked') {
+    if (tab === 'all') {
+      fetch('/api/predictions/all')
+        .then(r => r.json())
+        .then(d => { setAll(d as AllPrediction[]); setLoading(false) })
+        .catch(() => setLoading(false))
+    } else if (tab === 'tracked') {
       fetch('/api/predictions/tracked')
         .then(r => r.json())
         .then(d => { setTracked(d as TrackedPrediction[]); setLoading(false) })
@@ -129,10 +151,22 @@ export default function PredictionsPage() {
   const unreadTrackedCount = useMemo(() => tracked.filter(p => !p.viewedAt).length, [tracked])
   const unreadVerifiedCount = useMemo(() => verified.filter(p => !p.viewedAt).length, [verified])
 
+  const filteredAll = useMemo(() => {
+    return all.filter(p => {
+      if (allStatusFilter !== 'all' && p.status !== allStatusFilter) return false
+      if (allSearch.trim()) {
+        const q = allSearch.toLowerCase()
+        return p.content.toLowerCase().includes(q) || p.article.title.toLowerCase().includes(q)
+      }
+      return true
+    })
+  }, [all, allStatusFilter, allSearch])
+
   const TABS = [
-    { id: 'tracked' as const, label: '📌 Tracked', badge: unreadTrackedCount },
-    { id: 'verifications' as const, label: '🔮 Verifications', badge: unreadVerifiedCount },
-    { id: 'stats' as const, label: '📊 Accuracy', badge: 0 },
+    { id: 'all' as const,           label: '🔮 All',           badge: all.length },
+    { id: 'tracked' as const,       label: '📌 Tracked',       badge: unreadTrackedCount },
+    { id: 'verifications' as const, label: '✅ Verifications',  badge: unreadVerifiedCount },
+    { id: 'stats' as const,         label: '📊 Accuracy',       badge: 0 },
   ]
 
   return (
@@ -156,6 +190,71 @@ export default function PredictionsPage() {
         </div>
 
         {loading && <div style={{ color: '#555', fontSize: '14px', padding: '40px 0' }}>Loading…</div>}
+
+        {/* ─── ALL PREDICTIONS TAB ─── */}
+        {!loading && tab === 'all' && (
+          <div>
+            {/* Search + status filter */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <input
+                value={allSearch}
+                onChange={e => setAllSearch(e.target.value)}
+                placeholder="Search predictions…"
+                style={{ flex: '1 1 200px', background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#e0e0e0', fontSize: '13px', padding: '7px 12px', outline: 'none' }}
+              />
+              {(['all', 'PENDING', 'CORRECT', 'INCORRECT', 'PARTIALLY_CORRECT'] as const).map(s => (
+                <button key={s} onClick={() => setAllStatusFilter(s)}
+                  style={{ padding: '6px 12px', borderRadius: '6px', border: `1px solid ${allStatusFilter === s ? '#6366f1' : '#2a2a2a'}`, background: allStatusFilter === s ? 'rgba(99,102,241,0.15)' : 'none', color: allStatusFilter === s ? '#a5b4fc' : '#555', cursor: 'pointer', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                  {s === 'all' ? 'All' : s === 'PARTIALLY_CORRECT' ? 'Partial' : s.charAt(0) + s.slice(1).toLowerCase()}
+                </button>
+              ))}
+              <span style={{ fontSize: '12px', color: '#555', marginLeft: 'auto' }}>{filteredAll.length} / {all.length}</span>
+            </div>
+
+            {filteredAll.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 0', color: '#555' }}>
+                <div style={{ fontSize: '28px', marginBottom: '10px' }}>🔮</div>
+                <div style={{ fontSize: '14px' }}>{all.length === 0 ? 'No predictions yet — run the pipeline to generate some' : 'No predictions match your filter'}</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {filteredAll.map(pred => {
+                  const isOpen = expandedId === pred.id
+                  const confidencePct = Math.round(pred.confidence * 100)
+                  const emoji = pred.confidence > 0.7 ? '🎯' : pred.confidence > 0.5 ? '📊' : '💭'
+                  return (
+                    <div key={pred.id} style={{ backgroundColor: '#111', border: `1px solid ${statusColor[pred.status] ? statusColor[pred.status] + '33' : '#1f1f1f'}`, borderRadius: '12px', overflow: 'hidden' }}>
+                      <div style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '12px' }} onClick={() => setExpandedId(isOpen ? null : pred.id)}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '12px', color: statusColor[pred.status] ?? '#8a8a8a', fontWeight: 700 }}>
+                              {verdictIcon[pred.status] ?? '⏳'} {pred.status.replace('_', ' ')}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#555' }}>{emoji} {confidencePct}% · {pred.timeHorizon ?? 'no horizon'}</span>
+                            {pred.trackedByUser && <span style={{ fontSize: '10px', color: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '4px', padding: '1px 6px' }}>📌 tracked</span>}
+                            <span style={{ fontSize: '10px', color: '#444' }}>{formatDate(pred.createdAt)}</span>
+                          </div>
+                          <div style={{ fontSize: '13px', color: '#d0d0d0', lineHeight: '1.5', marginBottom: '6px' }}>{pred.content}</div>
+                          <Link href={`/article/${pred.article.id}`} style={{ fontSize: '11px', color: '#555', textDecoration: 'none' }}
+                            onClick={e => e.stopPropagation()}>
+                            ↗ {pred.article.title.slice(0, 60)}{pred.article.title.length > 60 ? '…' : ''}
+                          </Link>
+                        </div>
+                        <div style={{ color: '#555', fontSize: '12px', flexShrink: 0 }}>{isOpen ? '▲' : '▼'}</div>
+                      </div>
+                      {isOpen && pred.resolutionAnalysis && (
+                        <div style={{ borderTop: '1px solid #1a1a1a', padding: '14px 16px' }}>
+                          <div style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Resolution Analysis</div>
+                          <AnalysisBlock text={pred.resolutionAnalysis} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ─── TRACKED TAB ─── */}
         {!loading && tab === 'tracked' && (
