@@ -22,6 +22,9 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
   const [aiMode, setAiMode] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false)
+
+  const unreadCount = useMemo(() => articles.filter(a => !a.viewedAt).length, [articles])
 
   const allTopics = useMemo(() => {
     const topicCount = new Map<string, number>()
@@ -35,6 +38,7 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
 
   const filteredArticles = useMemo(() => {
     let result = articles.filter((a) => {
+      if (showUnreadOnly && a.viewedAt) return false
       const relevance = a.summary?.relevanceScore ?? 0
       if (relevance < minRelevance) return false
       if (selectedTopic && !a.summary?.keyTopics?.includes(selectedTopic)) return false
@@ -141,6 +145,19 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
           </select>
 
           <button
+            onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+            title={`${unreadCount} unread article${unreadCount !== 1 ? 's' : ''}`}
+            style={{
+              padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', transition: 'all 0.15s',
+              border: `1px solid ${showUnreadOnly ? '#6366f1' : '#2a2a2a'}`,
+              background: showUnreadOnly ? 'rgba(99,102,241,0.12)' : 'none',
+              color: showUnreadOnly ? '#6366f1' : '#8a8a8a',
+              display: 'flex', alignItems: 'center', gap: '5px',
+            }}
+          >
+            {showUnreadOnly ? '● Unread' : `○ Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
+          </button>
+          <button
             onClick={() => setShowFilters(!showFilters)}
             style={{
               padding: '8px 12px', background: showFilters ? '#1a1a1a' : 'none',
@@ -206,6 +223,7 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
       {/* Count */}
       <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
         {filteredArticles.length} article{filteredArticles.length !== 1 ? 's' : ''}
+        {showUnreadOnly ? ' · unread only' : ''}
         {selectedTopic ? ` in "${selectedTopic}"` : ''}
         {aiMode && searchInput ? ` · AI search: "${searchInput}"` : ''}
       </div>
