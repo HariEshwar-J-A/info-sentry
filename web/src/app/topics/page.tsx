@@ -29,7 +29,7 @@ interface Source {
   type: string
 }
 
-interface LogLine { type: 'stdout' | 'stderr' | 'system' | 'error'; text: string }
+interface LogLine { type: 'stdout' | 'stderr' | 'system' | 'error' | 'result'; text: string }
 
 // ─── Helpers ───────────────────────────────────────────────
 
@@ -247,16 +247,120 @@ function AddSourceForm({ interestId, onAdded }: { interestId: string; onAdded: (
 
 // ─── Sources Panel ─────────────────────────────────────────
 
+// ─── Discovery Panel ───────────────────────────────────────
+
+interface DiscoveryResult {
+  topic: string
+  added: { name: string; url: string; rssUrl: string | null; trustScore: number }[]
+  skipped: string[]
+  totalCandidates: number
+  slotsRemaining: number
+  hardLimit: number
+}
+
+function DiscoveryPanel({ interestId, onDone }: { interestId: string; onDone: () => void }) {
+  const [logs, setLogs] = useState<LogLine[]>([])
+  const [running, setRunning] = useState(true)
+  const [result, setResult] = useState<DiscoveryResult | null>(null)
+
+  useEffect(() => {
+    const abort = new AbortController()
+    void (async () => {
+      try {
+        const res = await fetch(`/api/interests/${interestId}/discover`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dryRun: false }),
+          signal: abort.signal,
+        })
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const parts = buf.split('\n')
+          buf = parts.pop() ?? ''
+          for (const part of parts) {
+            if (!part.startsWith('data: ')) continue
+            const raw = part.slice(6)
+            if (raw === '[DONE]') break
+            try {
+              const line = JSON.parse(raw) as LogLine
+              if (line.type === 'result') {
+                const r = JSON.parse(line.text) as DiscoveryResult
+                setResult(r)
+              } else {
+                setLogs(p => [...p.slice(-300), line])
+              }
+            } catch { /* skip */ }
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError')
+          setLogs(p => [...p, { type: 'error', text: (err as Error).message }])
+      } finally {
+        setRunning(false)
+      }
+    })()
+    return () => abort.abort()
+  }, [interestId])
+
+  return (
+    <div style={{ border: '1px solid rgba(99,102,241,0.3)', borderRadius: '10px', overflow: 'hidden' }}>
+      <div style={{ padding: '10px 14px', backgroundColor: 'rgba(99,102,241,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: '#a5b4fc' }}>
+          {running ? '🔍 Discovering sources…' : `✅ Discovery complete`}
+        </span>
+        {!running && (
+          <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Done</button>
+        )}
+      </div>
+
+      {result && (
+        <div style={{ padding: '10px 14px', borderTop: '1px solid #1a1a1a' }}>
+          <div style={{ display: 'flex', gap: '16px', fontSize: '12px', marginBottom: '8px', flexWrap: 'wrap' }}>
+            <span style={{ color: '#22c55e' }}>✓ {result.added.length} sources added</span>
+            <span style={{ color: '#555' }}>{result.totalCandidates} domains discovered</span>
+            <span style={{ color: '#555' }}>{result.slotsRemaining}/{result.hardLimit} slots remaining</span>
+          </div>
+          {result.added.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {result.added.map(s => (
+                <div key={s.url} style={{ fontSize: '11px', color: '#8a8a8a', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ color: trustColor(s.trustScore) }}>●</span>
+                  <span style={{ color: '#d0d0d0' }}>{s.name}</span>
+                  {s.rssUrl && <span style={{ color: '#6366f1', fontSize: '9px', fontWeight: 700 }}>RSS</span>}
+                  <span style={{ color: '#444' }}>{Math.round(s.trustScore * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <LogPanel lines={logs} onClear={() => setLogs([])} />
+    </div>
+  )
+}
+
+// ─── Sources Panel ─────────────────────────────────────────
+
 function SourcesPanel({ interestId }: { interestId: string }) {
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
+  const [showDiscovery, setShowDiscovery] = useState(false)
 
-  useEffect(() => {
+  const loadSources = useCallback(() => {
     fetch(`/api/interests/${interestId}/sources`)
       .then(r => r.json())
       .then((d: { sources: Source[] }) => { setSources(d.sources ?? []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [interestId])
+
+  useEffect(() => { loadSources() }, [loadSources])
 
   function handleUpdated(updated: Source) {
     setSources(prev => prev.map(s => s.id === updated.id ? updated : s))
@@ -272,17 +376,37 @@ function SourcesPanel({ interestId }: { interestId: string }) {
 
   const active = sources.filter(s => s.isActive)
   const disabled = sources.filter(s => !s.isActive)
+  const atLimit = sources.length >= 50
 
   return (
     <div style={{ borderTop: '1px solid #1a1a1a', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <div style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-        Sources ({sources.length}) — {active.length} active, {disabled.length} disabled
+      {/* Header with discover button */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <span style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Sources ({sources.length}/50) — {active.length} active{disabled.length > 0 ? `, ${disabled.length} disabled` : ''}
+        </span>
+        <button
+          onClick={() => { setShowDiscovery(true) }}
+          disabled={atLimit || showDiscovery}
+          style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: atLimit ? '#1a1a1a' : 'rgba(99,102,241,0.15)', color: atLimit ? '#333' : '#6366f1', cursor: atLimit ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+          title={atLimit ? 'Hard limit of 50 sources reached' : 'Auto-discover reliable sources from the internet'}
+        >
+          🔍 {atLimit ? 'Limit reached' : 'Discover Sources'}
+        </button>
       </div>
+
+      {/* Auto-discovery panel */}
+      {showDiscovery && (
+        <DiscoveryPanel
+          interestId={interestId}
+          onDone={() => { setShowDiscovery(false); loadSources() }}
+        />
+      )}
 
       {loading ? (
         <div style={{ color: '#555', fontSize: '12px', padding: '8px 0' }}>Loading sources…</div>
       ) : sources.length === 0 ? (
-        <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>No sources linked yet. Add one below.</div>
+        <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>No sources yet. Click "🔍 Discover Sources" to auto-find reliable domains, or add one manually below.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {active.map(s => (
@@ -299,7 +423,8 @@ function SourcesPanel({ interestId }: { interestId: string }) {
         </div>
       )}
 
-      <AddSourceForm interestId={interestId} onAdded={handleAdded} />
+      {!atLimit && <AddSourceForm interestId={interestId} onAdded={handleAdded} />}
+      {atLimit && <div style={{ fontSize: '11px', color: '#555', textAlign: 'center', padding: '8px 0' }}>Hard limit of 50 sources per topic reached. Remove some sources to add more.</div>}
     </div>
   )
 }
