@@ -4,7 +4,8 @@ import { getFeedArticles, searchArticlesByAI } from '@/lib/feed'
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
-    const hours = parseInt(url.searchParams.get('hours') ?? '48', 10)
+    const hoursParam = url.searchParams.get('hours')
+    const hours = hoursParam !== null ? parseInt(hoursParam, 10) : undefined
     const topic = url.searchParams.get('topic') ?? undefined
     const minRelevance = parseFloat(url.searchParams.get('minRelevance') ?? '0')
     const keyword = url.searchParams.get('keyword') ?? undefined

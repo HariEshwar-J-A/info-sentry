@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/shell/TopBar'
 import { TopicCluster } from '@/components/topics/TopicCluster'
 import type { TopicCluster as TopicClusterType } from '@/lib/feed'
@@ -164,8 +165,10 @@ function InterestCard({ interest, onRemove, onSeed }: {
 // ─── Seed Pipeline Panel ───────────────────────────────────
 
 function SeedPanel({ topic, onDone }: { topic: string; onDone: () => void }) {
+  const router = useRouter()
   const [logs, setLogs] = useState<LogLine[]>([])
   const [running, setRunning] = useState(true)
+  const [articlesProcessed, setArticlesProcessed] = useState(0)
 
   useEffect(() => {
     const abort = new AbortController()
@@ -181,6 +184,7 @@ function SeedPanel({ topic, onDone }: { topic: string; onDone: () => void }) {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buf = ''
+        let count = 0
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
@@ -191,9 +195,15 @@ function SeedPanel({ topic, onDone }: { topic: string; onDone: () => void }) {
             if (!part.startsWith('data: ')) continue
             const raw = part.slice(6)
             if (raw === '[DONE]') break
-            try { setLogs((p) => [...p.slice(-500), JSON.parse(raw) as LogLine]) } catch { /* skip */ }
+            try {
+              const line = JSON.parse(raw) as LogLine
+              setLogs((p) => [...p.slice(-500), line])
+              // Count "Done:" lines from analyst as processed articles
+              if (line.type === 'stdout' && line.text.includes('[analyst] Done:')) count++
+            } catch { /* skip */ }
           }
         }
+        setArticlesProcessed(count)
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
           setLogs((p) => [...p, { type: 'error', text: (err as Error).message }])
@@ -205,18 +215,39 @@ function SeedPanel({ topic, onDone }: { topic: string; onDone: () => void }) {
     return () => abort.abort()
   }, [])
 
+  function goToFeed() {
+    router.push(`/feed?q=${encodeURIComponent(topic)}`)
+  }
+
   return (
     <div style={{ backgroundColor: '#0d0d0d', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '12px', padding: '16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '13px', fontWeight: 600, color: '#6366f1' }}>
           {running
             ? <><span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse 1s infinite', marginRight: '7px' }} />Seeding "{topic}"…</>
-            : `✅ Seed complete for "${topic}"`}
+            : articlesProcessed > 0
+              ? `✅ ${articlesProcessed} new article${articlesProcessed !== 1 ? 's' : ''} processed for "${topic}"`
+              : `✅ Pipeline complete — existing articles are in the feed`}
         </div>
-        {!running && (
-          <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Dismiss</button>
-        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {!running && (
+            <>
+              <button
+                onClick={goToFeed}
+                style={{ padding: '5px 12px', borderRadius: '6px', border: 'none', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                View Feed →
+              </button>
+              <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Dismiss</button>
+            </>
+          )}
+        </div>
       </div>
+      {!running && articlesProcessed === 0 && (
+        <div style={{ fontSize: '12px', color: '#555', marginTop: '8px' }}>
+          All recent articles were already processed. The feed already contains articles about your topics — use "View Feed" to search for "{topic}". New articles will appear on the next cron cycle (every 30 min).
+        </div>
+      )}
       <LogPanel lines={logs} onClear={() => setLogs([])} />
     </div>
   )

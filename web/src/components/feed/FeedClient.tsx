@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ArticleCard } from './ArticleCard'
 import { Badge } from '@/components/ui/Badge'
 import type { ArticleWithSummary } from '@/lib/feed'
@@ -13,16 +14,71 @@ type SortMode = 'relevance' | 'date' | 'sentiment'
 type SentimentFilter = 'all' | 'positive' | 'neutral' | 'negative'
 
 export function FeedClient({ articles: initialArticles }: FeedClientProps) {
+  const searchParams = useSearchParams()
   const [articles, setArticles] = useState<ArticleWithSummary[]>(initialArticles)
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
   const [minRelevance, setMinRelevance] = useState(0)
-  const [sort, setSort] = useState<SortMode>('relevance')
+  const [sort, setSort] = useState<SortMode>('date')
   const [sentimentFilter, setSentimentFilter] = useState<SentimentFilter>('all')
   const [searchInput, setSearchInput] = useState('')
   const [aiMode, setAiMode] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [showUnreadOnly, setShowUnreadOnly] = useState(false)
+  const [hours48, setHours48] = useState(false)
+  const [newCount, setNewCount] = useState(0)
+  const knownIdsRef = useRef(new Set(initialArticles.map((a) => a.id)))
+
+  // Auto-fill search from ?q= URL param (used by topic seed navigation)
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q) setSearchInput(q)
+  }, [searchParams])
+
+  // Fetch fresh articles from API
+  const refreshFeed = useCallback(async (silent = true) => {
+    try {
+      const url = hours48 ? '/api/feed?hours=48' : '/api/feed'
+      const res = await fetch(url)
+      if (!res.ok) return
+      const fresh = (await res.json()) as ArticleWithSummary[]
+      const genuinelyNew = fresh.filter((a) => !knownIdsRef.current.has(a.id))
+      if (genuinelyNew.length > 0) {
+        if (silent) {
+          // Don't replace articles immediately — show banner instead
+          setNewCount((c) => c + genuinelyNew.length)
+        } else {
+          genuinelyNew.forEach((a) => knownIdsRef.current.add(a.id))
+          setArticles(fresh)
+          setNewCount(0)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [hours48])
+
+  // Load full article list now (replaces stale initial data)
+  const loadAll = useCallback(async () => {
+    try {
+      const url = hours48 ? '/api/feed?hours=48' : '/api/feed'
+      const res = await fetch(url)
+      if (!res.ok) return
+      const fresh = (await res.json()) as ArticleWithSummary[]
+      fresh.forEach((a) => knownIdsRef.current.add(a.id))
+      setArticles(fresh)
+      setNewCount(0)
+    } catch { /* ignore */ }
+  }, [hours48])
+
+  // Refresh on window focus + every 60s
+  useEffect(() => {
+    const onFocus = () => { void refreshFeed(true) }
+    window.addEventListener('focus', onFocus)
+    const id = setInterval(() => { void refreshFeed(true) }, 60_000)
+    return () => { window.removeEventListener('focus', onFocus); clearInterval(id) }
+  }, [refreshFeed])
+
+  // Reload when 48h toggle changes
+  useEffect(() => { void loadAll() }, [loadAll])
 
   const unreadCount = useMemo(() => articles.filter(a => !a.viewedAt).length, [articles])
 
@@ -62,18 +118,21 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
     }
 
     return result
-  }, [articles, minRelevance, selectedTopic, sentimentFilter, searchInput, aiMode])
+  }, [articles, minRelevance, selectedTopic, sentimentFilter, searchInput, aiMode, showUnreadOnly])
 
   const runSearch = useCallback(async () => {
     const q = searchInput.trim()
     if (!q) return
     setIsSearching(true)
     try {
-      const endpoint = aiMode ? `/api/feed?aiQuery=${encodeURIComponent(q)}` : `/api/feed?keyword=${encodeURIComponent(q)}&sort=${sort}`
+      const endpoint = aiMode
+        ? `/api/feed?aiQuery=${encodeURIComponent(q)}`
+        : `/api/feed?keyword=${encodeURIComponent(q)}&sort=${sort}`
       const res = await fetch(endpoint)
       if (res.ok) {
         const data = (await res.json()) as ArticleWithSummary[]
         setArticles(data)
+        data.forEach((a) => knownIdsRef.current.add(a.id))
       }
     } catch { /* ignore */ } finally {
       setIsSearching(false)
@@ -90,89 +149,92 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
 
   return (
     <div style={{ padding: '24px 32px' }}>
+      {/* New articles banner */}
+      {newCount > 0 && (
+        <div
+          onClick={() => void loadAll()}
+          style={{ marginBottom: '16px', padding: '10px 16px', backgroundColor: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        >
+          <span style={{ fontSize: '13px', color: '#a5b4fc' }}>
+            ✦ {newCount} new article{newCount !== 1 ? 's' : ''} available
+          </span>
+          <span style={{ fontSize: '12px', color: '#6366f1', fontWeight: 600 }}>Refresh →</span>
+        </div>
+      )}
+
       {/* Search + controls */}
       <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {/* Search bar row */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <div style={{ flex: 1, display: 'flex', gap: '0', border: '1px solid #2a2a2a', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#111' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '200px', display: 'flex', gap: '0', border: '1px solid #2a2a2a', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#111' }}>
             <input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+              onKeyDown={(e) => e.key === 'Enter' && void runSearch()}
               placeholder={aiMode ? 'Ask AI to find relevant articles…' : 'Search by keyword…'}
-              style={{
-                flex: 1, background: 'none', border: 'none', color: '#f0f0f0', fontSize: '14px',
-                padding: '9px 14px', outline: 'none',
-              }}
+              style={{ flex: 1, background: 'none', border: 'none', color: '#f0f0f0', fontSize: '14px', padding: '9px 14px', outline: 'none' }}
             />
             <button
               onClick={() => setAiMode(!aiMode)}
               title={aiMode ? 'Switch to keyword search' : 'Switch to AI search'}
-              style={{
-                padding: '6px 12px', background: aiMode ? '#6366f1' : 'transparent',
-                border: 'none', borderLeft: '1px solid #2a2a2a', cursor: 'pointer',
-                color: aiMode ? '#fff' : '#8a8a8a', fontSize: '12px', fontWeight: 500,
-                transition: 'all 0.15s',
-              }}
+              style={{ padding: '6px 12px', background: aiMode ? '#6366f1' : 'transparent', border: 'none', borderLeft: '1px solid #2a2a2a', cursor: 'pointer', color: aiMode ? '#fff' : '#8a8a8a', fontSize: '12px', fontWeight: 500 }}
             >
               {aiMode ? '✦ AI' : 'Kw'}
             </button>
             <button
-              onClick={runSearch}
+              onClick={() => void runSearch()}
               disabled={isSearching}
-              style={{
-                padding: '6px 14px', background: 'none', border: 'none',
-                borderLeft: '1px solid #2a2a2a', cursor: isSearching ? 'wait' : 'pointer',
-                color: '#8a8a8a', fontSize: '13px',
-              }}
+              style={{ padding: '6px 14px', background: 'none', border: 'none', borderLeft: '1px solid #2a2a2a', cursor: isSearching ? 'wait' : 'pointer', color: '#8a8a8a', fontSize: '13px' }}
             >
               {isSearching ? '…' : '↵'}
             </button>
           </div>
 
-          {/* Sort */}
           <select
             value={sort}
-            onChange={(e) => handleSortChange(e.target.value as SortMode)}
-            style={{
-              background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#e0e0e0',
-              fontSize: '13px', padding: '8px 10px', cursor: 'pointer', outline: 'none',
-            }}
+            onChange={(e) => void handleSortChange(e.target.value as SortMode)}
+            style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#e0e0e0', fontSize: '13px', padding: '8px 10px', cursor: 'pointer', outline: 'none' }}
           >
-            <option value="relevance">By Relevance</option>
             <option value="date">By Date</option>
+            <option value="relevance">By Relevance</option>
             <option value="sentiment">By Sentiment</option>
           </select>
 
+          {/* 48h toggle */}
+          <button
+            onClick={() => setHours48(!hours48)}
+            title="Toggle: last 48 hours only"
+            style={{ padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${hours48 ? '#6366f1' : '#2a2a2a'}`, background: hours48 ? 'rgba(99,102,241,0.12)' : 'none', color: hours48 ? '#6366f1' : '#8a8a8a', whiteSpace: 'nowrap' }}
+          >
+            {hours48 ? '⏱ 48h' : '⏱ All time'}
+          </button>
+
           <button
             onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-            title={`${unreadCount} unread article${unreadCount !== 1 ? 's' : ''}`}
-            style={{
-              padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', transition: 'all 0.15s',
-              border: `1px solid ${showUnreadOnly ? '#6366f1' : '#2a2a2a'}`,
-              background: showUnreadOnly ? 'rgba(99,102,241,0.12)' : 'none',
-              color: showUnreadOnly ? '#6366f1' : '#8a8a8a',
-              display: 'flex', alignItems: 'center', gap: '5px',
-            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${showUnreadOnly ? '#6366f1' : '#2a2a2a'}`, background: showUnreadOnly ? 'rgba(99,102,241,0.12)' : 'none', color: showUnreadOnly ? '#6366f1' : '#8a8a8a', whiteSpace: 'nowrap' }}
           >
             {showUnreadOnly ? '● Unread' : `○ Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
           </button>
+
           <button
             onClick={() => setShowFilters(!showFilters)}
-            style={{
-              padding: '8px 12px', background: showFilters ? '#1a1a1a' : 'none',
-              border: '1px solid #2a2a2a', borderRadius: '8px', color: showFilters ? '#f0f0f0' : '#8a8a8a',
-              cursor: 'pointer', fontSize: '13px', transition: 'all 0.15s',
-            }}
+            style={{ padding: '8px 12px', background: showFilters ? '#1a1a1a' : 'none', border: '1px solid #2a2a2a', borderRadius: '8px', color: showFilters ? '#f0f0f0' : '#8a8a8a', cursor: 'pointer', fontSize: '13px' }}
           >
             Filters {showFilters ? '▲' : '▼'}
+          </button>
+
+          <button
+            onClick={() => void loadAll()}
+            title="Reload articles"
+            style={{ padding: '8px 12px', background: 'none', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#555', cursor: 'pointer', fontSize: '13px' }}
+          >
+            ↺
           </button>
         </div>
 
         {/* Expanded filters */}
         {showFilters && (
           <div style={{ backgroundColor: '#0d0d0d', border: '1px solid #1f1f1f', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {/* Relevance slider */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontSize: '12px', color: '#8a8a8a', minWidth: '90px' }}>Min relevance</span>
               <input type="range" min="0" max="1" step="0.1" value={minRelevance}
@@ -182,7 +244,6 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
               <span style={{ fontSize: '12px', color: '#6366f1', minWidth: '32px' }}>{Math.round(minRelevance * 100)}%</span>
             </div>
 
-            {/* Sentiment filter */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '12px', color: '#8a8a8a', minWidth: '90px' }}>Sentiment</span>
               {(['all', 'positive', 'neutral', 'negative'] as SentimentFilter[]).map((s) => (
@@ -192,7 +253,6 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
               ))}
             </div>
 
-            {/* Topic pills */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: '12px', color: '#8a8a8a', minWidth: '90px' }}>Topic</span>
               <Badge variant={selectedTopic === null ? 'accent' : 'default'} onClick={() => setSelectedTopic(null)} size="sm">All</Badge>
@@ -206,7 +266,7 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
           </div>
         )}
 
-        {/* Topic quick-pills (always visible) */}
+        {/* Topic quick-pills */}
         {!showFilters && (
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             <Badge variant={selectedTopic === null ? 'accent' : 'default'} onClick={() => setSelectedTopic(null)} size="sm">All</Badge>
@@ -223,9 +283,10 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
       {/* Count */}
       <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
         {filteredArticles.length} article{filteredArticles.length !== 1 ? 's' : ''}
+        {hours48 ? ' · last 48h' : ' · all time'}
         {showUnreadOnly ? ' · unread only' : ''}
-        {selectedTopic ? ` in "${selectedTopic}"` : ''}
-        {aiMode && searchInput ? ` · AI search: "${searchInput}"` : ''}
+        {selectedTopic ? ` · topic: "${selectedTopic}"` : ''}
+        {searchInput ? ` · "${searchInput}"` : ''}
       </div>
 
       {/* Article grid */}
@@ -233,6 +294,11 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
         <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>◎</div>
           <div style={{ fontSize: '14px' }}>No articles match your filters</div>
+          {searchInput && (
+            <button onClick={() => setSearchInput('')} style={{ marginTop: '12px', fontSize: '12px', color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer' }}>
+              Clear search
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>

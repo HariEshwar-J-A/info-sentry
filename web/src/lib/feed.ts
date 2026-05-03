@@ -62,7 +62,7 @@ export async function getFeedArticles(options?: {
   dateTo?: Date
 }): Promise<ArticleWithSummary[]> {
   const {
-    hours = 48,
+    hours,          // undefined = no time limit
     topic,
     minRelevance = 0,
     keyword,
@@ -73,7 +73,7 @@ export async function getFeedArticles(options?: {
     dateTo,
   } = options ?? {}
 
-  const since = new Date(Date.now() - hours * 60 * 60 * 1000)
+  const since = hours !== undefined ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined
 
   const sentimentFilter =
     sentimentMin !== undefined || sentimentMax !== undefined
@@ -85,9 +85,10 @@ export async function getFeedArticles(options?: {
         }
       : {}
 
+  const dateGte = dateFrom ?? since
   const articles = await prisma.article.findMany({
     where: {
-      scrapedAt: { gte: dateFrom ?? since },
+      ...(dateGte ? { scrapedAt: { gte: dateGte } } : {}),
       ...(dateTo ? { scrapedAt: { lte: dateTo } } : {}),
       status: { in: ['SUMMARIZED', 'POSTED'] },
       summary: {

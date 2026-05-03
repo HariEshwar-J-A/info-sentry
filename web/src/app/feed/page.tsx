@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { TopBar } from '@/components/shell/TopBar'
 import { FeedClient } from '@/components/feed/FeedClient'
 import { getFeedArticles, type ArticleWithSummary } from '@/lib/feed'
@@ -8,17 +9,18 @@ export const revalidate = 0
 export default async function FeedPage() {
   let articles: ArticleWithSummary[] = []
   try {
-    articles = await getFeedArticles({ hours: 48 })
+    // Default: all articles (no hour limit). FeedClient exposes a 48h toggle.
+    articles = await getFeedArticles()
   } catch (err) {
     console.error('Feed fetch error:', err)
   }
 
-  const subtitle = `${articles.length} articles in the last 48 hours`
-
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
-      <TopBar title="Feed" subtitle={subtitle} />
-      <FeedClient articles={articles} />
+      <TopBar title="Feed" subtitle={`${articles.length} articles`} />
+      <Suspense>
+        <FeedClient articles={articles} />
+      </Suspense>
     </div>
   )
 }
