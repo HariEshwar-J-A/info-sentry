@@ -19,7 +19,290 @@ interface Interest {
   _count: { sources: number }
 }
 
+interface Source {
+  id: string
+  name: string
+  url: string
+  rssUrl: string | null
+  trustScore: number
+  isActive: boolean
+  type: string
+}
+
 interface LogLine { type: 'stdout' | 'stderr' | 'system' | 'error'; text: string }
+
+// ─── Helpers ───────────────────────────────────────────────
+
+function trustColor(score: number): string {
+  if (score >= 0.85) return '#6366f1'
+  if (score >= 0.7)  return '#22c55e'
+  if (score >= 0.5)  return '#eab308'
+  if (score >= 0.3)  return '#f97316'
+  return '#ef4444'
+}
+
+function trustLabel(score: number): string {
+  if (score >= 0.85) return 'Trusted'
+  if (score >= 0.7)  return 'Good'
+  if (score >= 0.5)  return 'Average'
+  if (score >= 0.3)  return 'Low'
+  return 'Unreliable'
+}
+
+// ─── Source Row ────────────────────────────────────────────
+
+function SourceRow({ source, interestId, onUpdated, onRemoved }: {
+  source: Source
+  interestId: string
+  onUpdated: (s: Source) => void
+  onRemoved: (id: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(source.name)
+  const [rssUrl, setRssUrl] = useState(source.rssUrl ?? '')
+  const [trustScore, setTrustScore] = useState(source.trustScore)
+  const [saving, setSaving] = useState(false)
+  const [removing, setRemoving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    const res = await fetch(`/api/sources/${source.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, rssUrl: rssUrl || null, trustScore }),
+    })
+    if (res.ok) {
+      const { source: updated } = (await res.json()) as { source: Source }
+      onUpdated(updated)
+      setEditing(false)
+    }
+    setSaving(false)
+  }
+
+  async function toggleActive() {
+    const res = await fetch(`/api/sources/${source.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: !source.isActive }),
+    })
+    if (res.ok) {
+      const { source: updated } = (await res.json()) as { source: Source }
+      onUpdated(updated)
+    }
+  }
+
+  async function unlink() {
+    setRemoving(true)
+    await fetch(`/api/interests/${interestId}/sources/${source.id}`, { method: 'DELETE' })
+    onRemoved(source.id)
+  }
+
+  const tc = trustColor(trustScore)
+
+  return (
+    <div style={{ backgroundColor: '#0d0d0d', border: `1px solid ${source.isActive ? '#1f1f1f' : '#141414'}`, borderRadius: '10px', padding: '12px 14px', opacity: source.isActive ? 1 : 0.55 }}>
+      {!editing ? (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+          {/* Trust score indicator */}
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', paddingTop: '2px' }}>
+            <div style={{ width: '6px', height: '36px', borderRadius: '3px', background: '#1a1a1a', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+              <div style={{ width: '100%', height: `${trustScore * 100}%`, backgroundColor: tc, borderRadius: '3px', transition: 'height 0.3s' }} />
+            </div>
+            <span style={{ fontSize: '9px', color: tc, fontWeight: 700 }}>{Math.round(trustScore * 100)}</span>
+          </div>
+
+          {/* Content */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: source.isActive ? '#e0e0e0' : '#666' }}>{source.name}</span>
+              {source.rssUrl && <span style={{ fontSize: '9px', color: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>RSS</span>}
+              <span style={{ fontSize: '10px', color: tc, fontWeight: 600 }}>{trustLabel(trustScore)}</span>
+            </div>
+            <a href={source.url} target="_blank" rel="noreferrer" style={{ fontSize: '11px', color: '#555', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {source.url}
+            </a>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+            <button onClick={() => setEditing(true)} style={{ padding: '4px 8px', borderRadius: '5px', border: '1px solid #2a2a2a', background: 'none', color: '#8a8a8a', cursor: 'pointer', fontSize: '11px' }}>Edit</button>
+            <button onClick={() => void toggleActive()} style={{ padding: '4px 8px', borderRadius: '5px', border: '1px solid #2a2a2a', background: 'none', color: source.isActive ? '#8a8a8a' : '#6366f1', cursor: 'pointer', fontSize: '11px' }}>
+              {source.isActive ? 'Disable' : 'Enable'}
+            </button>
+            <button onClick={() => void unlink()} disabled={removing} style={{ padding: '4px 8px', borderRadius: '5px', border: '1px solid rgba(239,68,68,0.25)', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '11px' }}>
+              {removing ? '…' : 'Unlink'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* Edit mode */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Source name"
+              style={{ flex: '1 1 160px', background: '#111', border: '1px solid #3a3a3a', borderRadius: '6px', color: '#e0e0e0', fontSize: '12px', padding: '6px 10px', outline: 'none' }} />
+            <input value={rssUrl} onChange={e => setRssUrl(e.target.value)} placeholder="RSS URL (optional)"
+              style={{ flex: '2 1 220px', background: '#111', border: '1px solid #3a3a3a', borderRadius: '6px', color: '#e0e0e0', fontSize: '12px', padding: '6px 10px', outline: 'none' }} />
+          </div>
+
+          {/* Trust score slider */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '11px', color: '#8a8a8a', minWidth: '80px' }}>Reliability</span>
+            <input type="range" min="0" max="1" step="0.05" value={trustScore}
+              onChange={e => setTrustScore(parseFloat(e.target.value))}
+              style={{ flex: 1, accentColor: trustColor(trustScore), cursor: 'pointer' }} />
+            <span style={{ fontSize: '12px', fontWeight: 700, color: trustColor(trustScore), minWidth: '80px' }}>
+              {Math.round(trustScore * 100)}% — {trustLabel(trustScore)}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={() => void save()} disabled={saving}
+              style={{ padding: '5px 14px', borderRadius: '6px', border: 'none', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={() => { setEditing(false); setName(source.name); setRssUrl(source.rssUrl ?? ''); setTrustScore(source.trustScore) }}
+              style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: '#8a8a8a', cursor: 'pointer', fontSize: '12px' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Add Source Form ───────────────────────────────────────
+
+function AddSourceForm({ interestId, onAdded }: { interestId: string; onAdded: (s: Source) => void }) {
+  const [url, setUrl] = useState('')
+  const [rssUrl, setRssUrl] = useState('')
+  const [name, setName] = useState('')
+  const [trustScore, setTrustScore] = useState(0.7)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!url.trim()) return
+    setLoading(true); setError(null)
+    try {
+      const res = await fetch(`/api/interests/${interestId}/sources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.trim(), rssUrl: rssUrl.trim() || undefined, name: name.trim() || undefined, trustScore }),
+      })
+      const data = await res.json() as { source?: Source; error?: string }
+      if (!res.ok) { setError(data.error ?? 'Failed'); return }
+      onAdded(data.source!)
+      setUrl(''); setRssUrl(''); setName(''); setTrustScore(0.7)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const tc = trustColor(trustScore)
+
+  return (
+    <div style={{ border: '1px dashed #2a2a2a', borderRadius: '10px', overflow: 'hidden' }}>
+      <button onClick={() => setExpanded(!expanded)}
+        style={{ width: '100%', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: '12px', fontWeight: 600, textAlign: 'left', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ fontSize: '14px' }}>+</span> Add Source {expanded ? '▲' : '▼'}
+      </button>
+      {expanded && (
+        <form onSubmit={e => void handleAdd(e)} style={{ padding: '12px 14px', borderTop: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Source URL (required)" required
+              style={{ flex: '2 1 200px', background: '#111', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#e0e0e0', fontSize: '12px', padding: '7px 10px', outline: 'none' }} />
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Name (auto from domain)"
+              style={{ flex: '1 1 140px', background: '#111', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#e0e0e0', fontSize: '12px', padding: '7px 10px', outline: 'none' }} />
+          </div>
+          <input value={rssUrl} onChange={e => setRssUrl(e.target.value)} placeholder="RSS feed URL (optional, greatly improves scraping)"
+            style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#e0e0e0', fontSize: '12px', padding: '7px 10px', outline: 'none' }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '11px', color: '#8a8a8a', minWidth: '80px' }}>Reliability</span>
+            <input type="range" min="0" max="1" step="0.05" value={trustScore}
+              onChange={e => setTrustScore(parseFloat(e.target.value))}
+              style={{ flex: 1, accentColor: tc, cursor: 'pointer' }} />
+            <span style={{ fontSize: '12px', fontWeight: 700, color: tc, minWidth: '90px' }}>
+              {Math.round(trustScore * 100)}% — {trustLabel(trustScore)}
+            </span>
+          </div>
+
+          {error && <div style={{ fontSize: '11px', color: '#ef4444' }}>{error}</div>}
+          <div>
+            <button type="submit" disabled={loading || !url.trim()}
+              style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', background: loading || !url.trim() ? '#1a1a1a' : 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: loading || !url.trim() ? '#555' : '#fff', cursor: loading || !url.trim() ? 'default' : 'pointer', fontSize: '12px', fontWeight: 600 }}>
+              {loading ? 'Adding…' : 'Add Source'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
+// ─── Sources Panel ─────────────────────────────────────────
+
+function SourcesPanel({ interestId }: { interestId: string }) {
+  const [sources, setSources] = useState<Source[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/interests/${interestId}/sources`)
+      .then(r => r.json())
+      .then((d: { sources: Source[] }) => { setSources(d.sources ?? []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [interestId])
+
+  function handleUpdated(updated: Source) {
+    setSources(prev => prev.map(s => s.id === updated.id ? updated : s))
+  }
+
+  function handleRemoved(id: string) {
+    setSources(prev => prev.filter(s => s.id !== id))
+  }
+
+  function handleAdded(source: Source) {
+    setSources(prev => prev.some(s => s.id === source.id) ? prev : [...prev, source])
+  }
+
+  const active = sources.filter(s => s.isActive)
+  const disabled = sources.filter(s => !s.isActive)
+
+  return (
+    <div style={{ borderTop: '1px solid #1a1a1a', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+        Sources ({sources.length}) — {active.length} active, {disabled.length} disabled
+      </div>
+
+      {loading ? (
+        <div style={{ color: '#555', fontSize: '12px', padding: '8px 0' }}>Loading sources…</div>
+      ) : sources.length === 0 ? (
+        <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>No sources linked yet. Add one below.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          {active.map(s => (
+            <SourceRow key={s.id} source={s} interestId={interestId} onUpdated={handleUpdated} onRemoved={handleRemoved} />
+          ))}
+          {disabled.length > 0 && (
+            <>
+              <div style={{ fontSize: '10px', color: '#333', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Disabled</div>
+              {disabled.map(s => (
+                <SourceRow key={s.id} source={s} interestId={interestId} onUpdated={handleUpdated} onRemoved={handleRemoved} />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      <AddSourceForm interestId={interestId} onAdded={handleAdded} />
+    </div>
+  )
+}
 
 // ─── Log Panel ─────────────────────────────────────────────
 
@@ -117,6 +400,7 @@ function InterestCard({ interest, onRemove, onSeed }: {
   onSeed: (topic: string) => void
 }) {
   const [removing, setRemoving] = useState(false)
+  const [showSources, setShowSources] = useState(false)
 
   async function handleRemove() {
     setRemoving(true)
@@ -125,39 +409,39 @@ function InterestCard({ interest, onRemove, onSeed }: {
   }
 
   return (
-    <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <span style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}>{interest.topic}</span>
-          {interest.isActive
-            ? <span style={{ fontSize: '10px', color: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>ACTIVE</span>
-            : <span style={{ fontSize: '10px', color: '#555', backgroundColor: '#1a1a1a', borderRadius: '4px', padding: '1px 6px' }}>PAUSED</span>
-          }
+    <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '12px', overflow: 'hidden' }}>
+      <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0' }}>{interest.topic}</span>
+            {interest.isActive
+              ? <span style={{ fontSize: '10px', color: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>ACTIVE</span>
+              : <span style={{ fontSize: '10px', color: '#555', backgroundColor: '#1a1a1a', borderRadius: '4px', padding: '1px 6px' }}>PAUSED</span>
+            }
+          </div>
+          {interest.description && (
+            <div style={{ fontSize: '12px', color: '#8a8a8a', marginBottom: '4px' }}>{interest.description}</div>
+          )}
+          {interest.searchKeywords.length > 0 && (
+            <div style={{ fontSize: '11px', color: '#555' }}>keywords: {interest.searchKeywords.slice(0, 5).join(', ')}</div>
+          )}
         </div>
-        {interest.description && (
-          <div style={{ fontSize: '12px', color: '#8a8a8a', marginBottom: '4px' }}>{interest.description}</div>
-        )}
-        <div style={{ fontSize: '11px', color: '#555' }}>
-          {interest._count.sources} sources linked
-          {interest.searchKeywords.length > 0 && ` · keywords: ${interest.searchKeywords.slice(0, 5).join(', ')}`}
+        <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
+          <button onClick={() => onSeed(interest.topic)}
+            style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(99,102,241,0.15)', color: '#6366f1', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+            ⚡ Seed
+          </button>
+          <button onClick={() => setShowSources(s => !s)}
+            style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${showSources ? '#6366f1' : '#2a2a2a'}`, background: showSources ? 'rgba(99,102,241,0.1)' : 'none', color: showSources ? '#a5b4fc' : '#8a8a8a', cursor: 'pointer', fontSize: '11px', fontWeight: 500 }}>
+            📡 Sources ({interest._count.sources})
+          </button>
+          <button onClick={() => void handleRemove()} disabled={removing}
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: '#555', cursor: removing ? 'default' : 'pointer', fontSize: '11px' }}>
+            {removing ? '…' : 'Remove'}
+          </button>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-        <button
-          onClick={() => onSeed(interest.topic)}
-          style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(99,102,241,0.15)', color: '#6366f1', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}
-          title="Run pipeline for this topic now"
-        >
-          ⚡ Seed
-        </button>
-        <button
-          onClick={() => void handleRemove()}
-          disabled={removing}
-          style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: '#555', cursor: removing ? 'default' : 'pointer', fontSize: '11px' }}
-        >
-          {removing ? '…' : 'Remove'}
-        </button>
-      </div>
+      {showSources && <SourcesPanel interestId={interest.id} />}
     </div>
   )
 }
