@@ -201,10 +201,10 @@ async function processInterest(
       continue;
     }
 
-    // Fetch README for new repos only
+    // Fetch README for new repos only (saves API quota)
     const existing = await db.gitHubRepo.findUnique({
       where: { fullName: repo.full_name },
-      select: { id: true, readme: true },
+      select: { id: true, readme: true, stars: true, forks: true },
     });
 
     let readme: string | null = existing?.readme ?? null;
@@ -212,6 +212,10 @@ async function processInterest(
       readme = await fetchReadme(repo.owner.login, repo.name, repo.default_branch);
       await sleep(REQUEST_DELAY_MS);
     }
+
+    // Track star/fork deltas for trending detection
+    const starDelta = existing ? repo.stargazers_count - (existing.stars ?? 0) : 0;
+    const forkDelta = existing ? repo.forks_count - (existing.forks ?? 0) : 0;
 
     await db.gitHubRepo.upsert({
       where: { fullName: repo.full_name },
@@ -223,6 +227,11 @@ async function processInterest(
         topics: repo.topics,
         description: repo.description,
         lastPushed,
+        previousStars: existing?.stars ?? null,
+        previousForks: existing?.forks ?? null,
+        starDelta,
+        forkDelta,
+        fetchCount: { increment: 1 },
         updatedAt: new Date(),
       },
       create: {
@@ -240,11 +249,15 @@ async function processInterest(
         readme,
         defaultBranch: repo.default_branch,
         lastPushed,
+        starDelta: 0,
+        forkDelta: 0,
+        fetchCount: 1,
       },
     });
 
+    const trendStr = starDelta > 0 ? ` (+${fmtNum(starDelta)}⭐)` : "";
     const action = existing ? "updated" : "saved";
-    console.log(`[github]   ✓ ${action}: ${repo.full_name} ⭐${fmtNum(repo.stargazers_count)} 🔀${fmtNum(repo.forks_count)}${readme ? " +README" : ""}`);
+    console.log(`[github]   ✓ ${action}: ${repo.full_name} ⭐${fmtNum(repo.stargazers_count)}${trendStr} 🔀${fmtNum(repo.forks_count)}${readme && !existing ? " +README" : ""}`);
     saved++;
   }
 

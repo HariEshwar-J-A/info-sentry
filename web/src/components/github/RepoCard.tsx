@@ -19,6 +19,10 @@ export interface GitHubRepoData {
   scrapedAt: string
   viewedAt: string | null
   interestId: string | null
+  starDelta?: number
+  forkDelta?: number
+  previousStars?: number | null
+  fetchCount?: number
 }
 
 function fmtNum(n: number): string {
@@ -108,9 +112,14 @@ export function RepoCard({ repo, onViewed }: { repo: GitHubRepoData; onViewed?: 
 
           {/* Stars badge */}
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#1a1a1a', borderRadius: '6px', padding: '4px 8px' }}>
-              <span style={{ fontSize: '13px' }}>⭐</span>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: '#eab308' }}>{fmtNum(repo.stars)}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#1a1a1a', borderRadius: '6px', padding: '4px 8px' }}>
+                <span style={{ fontSize: '13px' }}>⭐</span>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#eab308' }}>{fmtNum(repo.stars)}</span>
+              </div>
+              {repo.starDelta && repo.starDelta > 0 && (
+                <span style={{ fontSize: '10px', color: '#22c55e', fontWeight: 700 }}>+{fmtNum(repo.starDelta)} ↑</span>
+              )}
             </div>
           </div>
         </div>

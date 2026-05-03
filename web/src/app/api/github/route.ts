@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
-    const sort = (url.searchParams.get('sort') ?? 'stars') as 'stars' | 'forks' | 'recent' | 'pushed'
+    const sort = (url.searchParams.get('sort') ?? 'trending') as 'stars' | 'forks' | 'recent' | 'pushed' | 'trending'
     const language = url.searchParams.get('language') ?? undefined
     const topic = url.searchParams.get('topic') ?? undefined
     const interestId = url.searchParams.get('interestId') ?? undefined
@@ -23,9 +23,10 @@ export async function GET(request: Request) {
     }
 
     const orderBy =
-      sort === 'forks' ? { forks: 'desc' as const } :
-      sort === 'recent' ? { scrapedAt: 'desc' as const } :
-      sort === 'pushed' ? { lastPushed: 'desc' as const } :
+      sort === 'forks'    ? { forks: 'desc' as const } :
+      sort === 'recent'   ? { scrapedAt: 'desc' as const } :
+      sort === 'pushed'   ? { lastPushed: 'desc' as const } :
+      sort === 'trending' ? { starDelta: 'desc' as const } :
       { stars: 'desc' as const }
 
     const repos = await prisma.gitHubRepo.findMany({
@@ -49,6 +50,10 @@ export async function GET(request: Request) {
         scrapedAt: true,
         viewedAt: true,
         interestId: true,
+        starDelta: true,
+        forkDelta: true,
+        previousStars: true,
+        fetchCount: true,
       },
     })
 

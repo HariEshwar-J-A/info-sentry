@@ -394,17 +394,23 @@ model GitHubRepo {
   watchers    Int       @default(0)
   language    String?
   topics      String[]  @default([])
-  readme      String?   // truncated README (up to 8000 chars)
-  aiSummary   String?   // optional AI-generated summary
-  defaultBranch String  @default("main")
-  lastPushed  DateTime?
-  viewedAt    DateTime?
-  scrapedAt   DateTime  @default(now())
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  readme        String?   // truncated README (up to 8000 chars)
+  aiSummary     String?   // AI-generated summary from README
+  defaultBranch String    @default("main")
+  lastPushed    DateTime?
+  viewedAt      DateTime?
+  previousStars Int?      // stars on previous fetch
+  previousForks Int?      // forks on previous fetch
+  starDelta     Int       @default(0)
+  forkDelta     Int       @default(0)
+  fetchCount    Int       @default(1)
+  scrapedAt     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([stars])
   @@index([forks])
+  @@index([starDelta])
   @@index([interestId, stars])
   @@index([language])
   @@index([scrapedAt])

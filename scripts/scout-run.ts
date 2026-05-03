@@ -44,6 +44,9 @@ interface ArticleData {
   content: string;
   publishedAt?: Date;
   dateConfidence: DateConfidence;
+  publisher?: string;    // publisher name (from RSS <source>)
+  publisherUrl?: string; // publisher domain URL
+  isRssOnly?: boolean;   // true = RSS metadata only, no full crawl needed
 }
 
 // ─── Concurrency ───────────────────────────────────────────
@@ -301,6 +304,10 @@ async function crawlArticle(url: string): Promise<ArticleData | null> {
   }
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
 /** Parse an RSS/Atom feed, return article stubs with metadata */
 async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<ArticleData[]> {
   try {
@@ -312,11 +319,18 @@ async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<Arti
     const items = parsed.feed?.entry ?? parsed.rss?.channel?.item ?? [];
     const itemArr = (Array.isArray(items) ? items : [items]).filter(Boolean).slice(0, limit);
 
+    const isGoogleNews = rssUrl.includes("news.google.com");
     const articles: ArticleData[] = [];
+
     for (const item of itemArr) {
+      // URL: prefer guid for Google News (stable), else link
       const rawUrl: string = item.link?.href ?? item.link ?? "";
+      const guid: string = typeof item.guid === "object" ? item.guid._ ?? "" : item.guid ?? "";
+      const url = isGoogleNews && guid ? `https://news.google.com/rss/articles/${guid}` : rawUrl.trim();
+      if (!url) continue;
+
       const title: string = typeof item.title === "object" ? item.title._ ?? "" : item.title ?? "";
-      if (!rawUrl || !title) continue;
+      if (!title) continue;
 
       const pubStr: string | undefined = item.pubDate ?? item.published ?? item.updated;
       let publishedAt: Date | undefined;
@@ -328,16 +342,33 @@ async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<Arti
 
       if (isArticleTooOld(publishedAt, dateConfidence)) {
         const ageDays = publishedAt ? ((Date.now() - publishedAt.getTime()) / 86_400_000).toFixed(1) : "?";
-        console.log(`[scout]   skip old (${ageDays}d): ${title.replace(/<[^>]+>/g, "").slice(0, 60)}`);
+        console.log(`[scout]   skip old (${ageDays}d): ${stripHtml(title).slice(0, 60)}`);
         continue;
       }
 
+      // Publisher metadata (especially useful for Google News)
+      const sourceEl = item.source;
+      const publisherUrl: string | undefined = sourceEl?.$?.url ?? sourceEl?.url;
+      const publisher: string | undefined = typeof sourceEl === "string" ? sourceEl : sourceEl?._ ?? sourceEl?.__text;
+
+      // Description text (Google News encodes related articles here as HTML)
+      const descRaw: string = typeof item.description === "string" ? item.description : "";
+      const descText = descRaw ? stripHtml(descRaw).slice(0, 500) : "";
+
+      // For Google News: build content from available metadata (crawling returns 400)
+      const content = isGoogleNews
+        ? [`Title: ${stripHtml(title)}`, publisher ? `Publisher: ${publisher}` : "", descText].filter(Boolean).join("\n")
+        : descText;
+
       articles.push({
-        url: rawUrl.trim(),
-        title: title.replace(/<[^>]+>/g, "").trim(),
-        content: "",
+        url,
+        title: stripHtml(title).trim(),
+        content,
         publishedAt,
         dateConfidence,
+        publisher,
+        publisherUrl,
+        isRssOnly: isGoogleNews,
       });
     }
     return articles;
@@ -407,24 +438,45 @@ async function scrapeGoogleNews(
 
   let saved = 0;
   for (const stub of stubs) {
-    // Crawl article → follow any redirect → get canonical URL + content
+    if (globalSeen.has(stub.url)) continue;
+    globalSeen.add(stub.url);
+
+    // Google News redirect URLs return HTTP 400 — save directly from RSS metadata
+    // (title + publisher + description snippet gives analyst enough to work with)
+    if (stub.isRssOnly) {
+      const content = stub.content || `Article: ${stub.title}${stub.publisher ? `\nSource: ${stub.publisher}` : ""}`;
+      const ok = await saveRawArticle(db, {
+        sourceId,
+        url: stub.url,
+        title: stub.title,
+        rawContent: content,
+        publishedAt: stub.publishedAt,
+        dateConfidence: stub.dateConfidence,
+      });
+      if (ok) {
+        saved++;
+        const age = stub.publishedAt
+          ? `${((Date.now() - stub.publishedAt.getTime()) / 3_600_000).toFixed(0)}h`
+          : "?";
+        console.log(`[scout]   ✓ [${age}] ${stub.title.slice(0, 70)} — ${stub.publisher ?? "Google News"}`);
+      }
+      continue;
+    }
+
+    // Regular articles: crawl for full content
     const article = await crawlArticle(stub.url);
     if (!article) continue;
 
-    // Use canonical URL for deduplication
-    if (globalSeen.has(article.url)) continue;
+    if (globalSeen.has(article.url) && article.url !== stub.url) continue;
     globalSeen.add(article.url);
 
-    // Post-crawl age check with actual page date
     if (isArticleTooOld(article.publishedAt, article.dateConfidence)) {
       const ageDays = article.publishedAt
-        ? ((Date.now() - article.publishedAt.getTime()) / 86_400_000).toFixed(1)
-        : "?";
+        ? ((Date.now() - article.publishedAt.getTime()) / 86_400_000).toFixed(1) : "?";
       console.log(`[scout]   skip old (${ageDays}d): ${article.title.slice(0, 60)}`);
       continue;
     }
 
-    // Merge RSS date if crawled page has no date
     if (!article.publishedAt && stub.publishedAt) {
       article.publishedAt = stub.publishedAt;
       article.dateConfidence = stub.dateConfidence;
@@ -442,8 +494,7 @@ async function scrapeGoogleNews(
     if (ok) {
       saved++;
       const age = article.publishedAt
-        ? `${((Date.now() - article.publishedAt.getTime()) / 3_600_000).toFixed(0)}h`
-        : "?";
+        ? `${((Date.now() - article.publishedAt.getTime()) / 3_600_000).toFixed(0)}h` : "?";
       console.log(`[scout]   ✓ [${age}] ${article.title.slice(0, 70)}`);
     }
   }

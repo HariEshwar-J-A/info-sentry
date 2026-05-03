@@ -578,7 +578,7 @@ function GitHubScanPanel({ interestId, topic, onDone }: { interestId: string; to
         </span>
         {!running && (
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => router.push('/github-feed')}
+            <button onClick={() => { window.location.href = '/github-feed' }}
               style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', background: 'rgba(234,179,8,0.15)', color: '#eab308', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
               View GitHub Feed →
             </button>
@@ -710,7 +710,8 @@ function SeedPanel({ topic, onDone }: { topic: string; onDone: () => void }) {
   }, [])
 
   function goToFeed() {
-    router.push(`/feed?q=${encodeURIComponent(topic)}`)
+    // Hard navigation to bypass Next.js RSC cache — ensures fresh articles are visible
+    window.location.href = `/feed?q=${encodeURIComponent(topic)}`
   }
 
   return (

@@ -7,7 +7,7 @@ import { TopBar } from '@/components/shell/TopBar'
 import { RepoCard, type GitHubRepoData } from '@/components/github/RepoCard'
 import { SourceTypeToggle } from '@/components/shell/SourceTypeToggle'
 
-type SortMode = 'stars' | 'forks' | 'pushed' | 'recent'
+type SortMode = 'stars' | 'forks' | 'pushed' | 'recent' | 'trending'
 
 interface LangFacet { language: string; count: number }
 interface ApiResponse { repos: GitHubRepoData[]; total: number; languages: LangFacet[] }
@@ -19,7 +19,7 @@ function GitHubFeedClient() {
   const [repos, setRepos] = useState<GitHubRepoData[]>([])
   const [languages, setLanguages] = useState<LangFacet[]>([])
   const [loading, setLoading] = useState(true)
-  const [sort, setSort] = useState<SortMode>('stars')
+  const [sort, setSort] = useState<SortMode>('trending')
   const [langFilter, setLangFilter] = useState<string | null>(null)
   const [topicFilter, setTopicFilter] = useState<string | null>(null)
   const [search, setSearch] = useState(searchParams.get('q') ?? '')
@@ -111,6 +111,7 @@ function GitHubFeedClient() {
             onChange={e => setSort(e.target.value as SortMode)}
             style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#e0e0e0', fontSize: '13px', padding: '8px 10px', cursor: 'pointer', outline: 'none' }}
           >
+            <option value="trending">🔥 Trending (star growth)</option>
             <option value="stars">⭐ Most Stars</option>
             <option value="forks">🔀 Most Forks</option>
             <option value="pushed">🕐 Recently Pushed</option>
