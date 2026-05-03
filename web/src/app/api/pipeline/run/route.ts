@@ -60,8 +60,11 @@ export async function POST() {
         // 1. Scout
         await runScript('Scout — scraping sources', 'scripts/scout-run.ts')
 
-        // 2. Pipeline (analyst + predictions + telegram)
-        await runScript('Analyst Pipeline — analyze + predict + post', 'scripts/pipeline-run.ts')
+        // 2. Analyst (SCRAPED → SUMMARIZED + Telegram summaries)
+        await runScript('Analyst — analyze + embed + post summaries', 'scripts/analyst-run.ts')
+
+        // 3. Predictor (SUMMARIZED → POSTED + Telegram predictions)
+        await runScript('Predictor — generate + post predictions', 'scripts/predictor-run.ts')
 
         // Record runs
         await prisma.agentConfig.updateMany({

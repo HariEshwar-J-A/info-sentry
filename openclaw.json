@@ -129,7 +129,7 @@
           "enabled": true,
           "exec_ask": false,
           "allowed_commands": [
-            "npx tsx scripts/pipeline-run.ts"
+            "npx tsx scripts/analyst-run.ts"
           ]
         }
       }
@@ -143,9 +143,7 @@
           "enabled": true,
           "exec_ask": false,
           "allowed_commands": [
-            "npx tsx scripts/prediction-process.ts *",
-            "npx tsx scripts/prediction-verifier.ts",
-            "npx tsx scripts/prediction-verifier.ts --dryRun"
+            "npx tsx scripts/predictor-run.ts"
           ]
         }
       }
