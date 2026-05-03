@@ -4,6 +4,32 @@ import React, { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
+// ─── Notification Sound ────────────────────────────────────
+
+function playNotificationSound(count: number) {
+  try {
+    const ctx = new AudioContext()
+    // Single: soft descending chime. Multiple: ascending chord stack.
+    const notes = count === 1 ? [880, 660] : [440, 550, 660].slice(0, Math.min(count, 3))
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      const t = ctx.currentTime + i * 0.18
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.04)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45)
+      osc.start(t)
+      osc.stop(t + 0.45)
+    })
+    // Auto-close context after sounds finish
+    setTimeout(() => ctx.close().catch(() => {}), (notes.length * 180 + 500))
+  } catch { /* audio not available */ }
+}
+
 interface NavItem { href: string; label: string; icon: React.ReactNode }
 
 function RssIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg> }
@@ -59,27 +85,66 @@ export function Sidebar() {
   const [notifOpen, setNotifOpen] = useState(false)
   const bellRef = useRef<HTMLButtonElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
+  // Sound debounce state
+  const prevUnreadRef = useRef<number | null>(null)
+  const pendingSoundRef = useRef(0)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Request browser notification permission on first mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission()
+    }
+  }, [])
 
   // Fetch budget once
   useEffect(() => {
     fetch('/api/budget').then(r => r.json()).then(d => setBudget(d)).catch(() => {})
   }, [])
 
-  // Poll notifications every 30s
+  // Poll notifications every 20s
   const fetchNotifications = useCallback(() => {
     fetch('/api/notifications')
       .then(r => r.json())
       .then((d: { notifications: NotifItem[]; unreadCount: number }) => {
-        setNotifications(d.notifications ?? [])
-        setUnreadCount(d.unreadCount ?? 0)
+        const newNotifs = d.notifications ?? []
+        const newCount = d.unreadCount ?? 0
+        setNotifications(newNotifs)
+        setUnreadCount(newCount)
+
+        // Detect newly arrived notifications (unread count increased)
+        if (prevUnreadRef.current !== null && newCount > prevUnreadRef.current) {
+          const arrived = newCount - prevUnreadRef.current
+          pendingSoundRef.current += arrived
+
+          // Show browser notification for each new one
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            const fresh = newNotifs.filter(n => !n.readAt).slice(0, arrived)
+            if (arrived === 1 && fresh[0]) {
+              new Notification(fresh[0].title, { body: fresh[0].body, icon: '/favicon.ico', silent: true })
+            } else if (arrived > 1) {
+              new Notification(`${arrived} new notifications`, { body: fresh.map(n => n.title).join('\n'), icon: '/favicon.ico', silent: true })
+            }
+          }
+
+          // Debounce sound: wait 10s for more, then fire once
+          if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = setTimeout(() => {
+            playNotificationSound(pendingSoundRef.current)
+            pendingSoundRef.current = 0
+            debounceTimerRef.current = null
+          }, 10_000)
+        }
+
+        prevUnreadRef.current = newCount
       })
       .catch(() => {})
   }, [])
 
   useEffect(() => {
     fetchNotifications()
-    const id = setInterval(fetchNotifications, 30_000)
-    return () => clearInterval(id)
+    const id = setInterval(fetchNotifications, 20_000)
+    return () => { clearInterval(id); if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current) }
   }, [fetchNotifications])
 
   // Close dropdown on outside click
@@ -146,8 +211,13 @@ export function Sidebar() {
       {/* Notification Bell */}
       <div style={{ padding: '4px 10px 4px', position: 'relative' }}>
         <button ref={bellRef} onClick={() => setNotifOpen(o => !o)}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', background: notifOpen ? '#1a1a1a' : 'none', border: 'none', cursor: 'pointer', color: '#8a8a8a', fontSize: '14px', transition: 'all 0.15s' }}>
-          <span style={{ opacity: 0.7 }}><BellIcon /></span>
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', background: notifOpen ? '#1a1a1a' : 'none', border: 'none', cursor: 'pointer', color: unreadCount > 0 ? '#d0d0d0' : '#8a8a8a', fontSize: '14px', transition: 'all 0.15s' }}>
+          <span style={{ opacity: unreadCount > 0 ? 1 : 0.7, color: unreadCount > 0 ? '#6366f1' : 'currentColor', position: 'relative' }}>
+            <BellIcon />
+            {unreadCount > 0 && (
+              <span style={{ position: 'absolute', top: '-3px', right: '-3px', width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse-dot 1.5s ease-in-out infinite', border: '1.5px solid #0d0d0d' }} />
+            )}
+          </span>
           <span>Notifications</span>
           {unreadCount > 0 && (
             <span style={{ marginLeft: 'auto', minWidth: '18px', height: '18px', borderRadius: '9px', backgroundColor: '#6366f1', color: '#fff', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
