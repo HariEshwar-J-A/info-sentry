@@ -10,7 +10,9 @@ export async function POST(req: Request) {
   const key = '__seed_pipeline__'
   const existing = agentProcesses.get(key)
   if (existing && existing.exitCode === null) {
-    return new Response('Seed pipeline already running', { status: 409 })
+    try { existing.process.kill('SIGTERM') } catch { /* ignore */ }
+    // Brief pause so the OS releases the process before we respawn
+    await new Promise(r => setTimeout(r, 300))
   }
 
   const encoder = new TextEncoder()
