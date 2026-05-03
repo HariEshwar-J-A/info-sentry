@@ -459,36 +459,41 @@ async function main(): Promise<void> {
 
   console.log(`[scout] ${interests.length} active interests\n`);
 
-  let totalSaved = 0;
-
   for (const interest of interests) {
     if (interest.searchKeywords.length > 0) {
       console.log(`[scout] Interest "${interest.topic}" — refined keywords: ${interest.searchKeywords.slice(0, 5).join(", ")}`);
     }
+  }
 
-    const junctions = await db.interestSource.findMany({
-      where: { interestId: interest.id },
-      include: {
-        source: {
-          select: { id: true, name: true, url: true, rssUrl: true },
-        },
+  // Collect all unique active sources across all interests (deduplicate by id)
+  const allJunctions = await db.interestSource.findMany({
+    where: { interest: { isActive: true } },
+    include: {
+      source: {
+        select: { id: true, name: true, url: true, rssUrl: true, isActive: true },
       },
-    });
+    },
+  });
 
-    const sources = junctions
-      .map((j) => j.source)
-      .filter((s): s is NonNullable<typeof s> => s !== null);
+  const seen = new Set<string>();
+  const sources = allJunctions
+    .map((j) => j.source)
+    .filter((s): s is NonNullable<typeof s> => s !== null && s.isActive)
+    .filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
 
-    for (const source of sources) {
-      try {
-        const articles = await scrapeSource(db, source);
-        totalSaved += articles;
-        if (articles > 0) {
-          console.log(`[scout] ${source.name}: ${articles} articles saved\n`);
-        }
-      } catch (err) {
-        console.error(`[scout] FAILED ${source.name}:`, err);
+  console.log(`\n[scout] ${sources.length} unique active sources to scrape\n`);
+
+  let totalSaved = 0;
+
+  for (const source of sources) {
+    try {
+      const articles = await scrapeSource(db, source);
+      totalSaved += articles;
+      if (articles > 0) {
+        console.log(`[scout] ${source.name}: ${articles} articles saved\n`);
       }
+    } catch (err) {
+      console.error(`[scout] FAILED ${source.name}:`, err);
     }
   }
 
