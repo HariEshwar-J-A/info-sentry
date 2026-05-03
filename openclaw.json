@@ -162,6 +162,22 @@
           ]
         }
       }
+    },
+
+    "github-scout": {
+      "soul": "agents/scout.md",
+      "model": "gemini-flash",
+      "tools": {
+        "exec": {
+          "enabled": true,
+          "exec_ask": false,
+          "allowed_commands": [
+            "npx tsx scripts/github-scout.ts",
+            "npx tsx scripts/github-scout.ts --interestId=*",
+            "npx tsx scripts/github-scout.ts --dryRun"
+          ]
+        }
+      }
     }
   },
 

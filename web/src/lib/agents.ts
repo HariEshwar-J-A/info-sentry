@@ -45,6 +45,13 @@ export const AGENT_DEFS: Record<string, {
     script: 'scripts/predictor-run.ts',
     defaultModel: 'moonshotai/kimi-k2.6',
   },
+  'github-scout': {
+    label: 'GitHub Scout',
+    description: 'Discovers trending GitHub repositories per topic via GitHub Search API — stars, forks, README fetching',
+    icon: '⭐',
+    script: 'scripts/github-scout.ts',
+    defaultModel: 'openai/gpt-4o-mini',
+  },
   'prediction-verifier': {
     label: 'Prediction Verifier',
     description: 'Checks tracked predictions against recent news using kimi-k2.6 chain-of-thought + DuckDuckGo',

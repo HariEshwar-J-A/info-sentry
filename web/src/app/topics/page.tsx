@@ -519,6 +519,80 @@ function AddTopicForm({ onAdded }: { onAdded: (topic: string) => void }) {
 
 // ─── Interest Card ─────────────────────────────────────────
 
+// ─── GitHub Scan Panel ─────────────────────────────────────
+
+function GitHubScanPanel({ interestId, topic, onDone }: { interestId: string; topic: string; onDone: () => void }) {
+  const router = useRouter()
+  const [logs, setLogs] = useState<LogLine[]>([])
+  const [running, setRunning] = useState(true)
+  const [reposFound, setReposFound] = useState(0)
+
+  useEffect(() => {
+    const abort = new AbortController()
+    void (async () => {
+      try {
+        const res = await fetch(`/api/interests/${interestId}/github-scan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dryRun: false }),
+          signal: abort.signal,
+        })
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        let count = 0
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const parts = buf.split('\n')
+          buf = parts.pop() ?? ''
+          for (const part of parts) {
+            if (!part.startsWith('data: ')) continue
+            const raw = part.slice(6)
+            if (raw === '[DONE]') break
+            try {
+              const line = JSON.parse(raw) as LogLine
+              setLogs(p => [...p.slice(-300), line])
+              if (line.text.includes('✓')) count++
+            } catch { /* skip */ }
+          }
+        }
+        setReposFound(count)
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError')
+          setLogs(p => [...p, { type: 'error', text: (err as Error).message }])
+      } finally {
+        setRunning(false)
+      }
+    })()
+    return () => abort.abort()
+  }, [interestId])
+
+  return (
+    <div style={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(234,179,8,0.25)', borderRadius: '10px', overflow: 'hidden' }}>
+      <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(234,179,8,0.05)' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: '#eab308' }}>
+          {running ? `⭐ Scanning GitHub for "${topic}"…` : `✅ ${reposFound} repos found for "${topic}"`}
+        </span>
+        {!running && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => router.push('/github-feed')}
+              style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', background: 'rgba(234,179,8,0.15)', color: '#eab308', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+              View GitHub Feed →
+            </button>
+            <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Dismiss</button>
+          </div>
+        )}
+      </div>
+      <LogPanel lines={logs} onClear={() => setLogs([])} />
+    </div>
+  )
+}
+
+// ─── Interest Card ─────────────────────────────────────────
+
 function InterestCard({ interest, onRemove, onSeed }: {
   interest: Interest
   onRemove: () => void
@@ -526,6 +600,7 @@ function InterestCard({ interest, onRemove, onSeed }: {
 }) {
   const [removing, setRemoving] = useState(false)
   const [showSources, setShowSources] = useState(false)
+  const [showGithubScan, setShowGithubScan] = useState(false)
 
   async function handleRemove() {
     setRemoving(true)
@@ -551,12 +626,17 @@ function InterestCard({ interest, onRemove, onSeed }: {
             <div style={{ fontSize: '11px', color: '#555' }}>keywords: {interest.searchKeywords.slice(0, 5).join(', ')}</div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '5px', flexShrink: 0, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button onClick={() => onSeed(interest.topic)}
             style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(99,102,241,0.15)', color: '#6366f1', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
             ⚡ Seed
           </button>
-          <button onClick={() => setShowSources(s => !s)}
+          <button
+            onClick={() => { setShowGithubScan(s => !s); setShowSources(false) }}
+            style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${showGithubScan ? 'rgba(234,179,8,0.4)' : '#2a2a2a'}`, background: showGithubScan ? 'rgba(234,179,8,0.1)' : 'none', color: showGithubScan ? '#eab308' : '#8a8a8a', cursor: 'pointer', fontSize: '11px', fontWeight: 500 }}>
+            ⭐ GitHub
+          </button>
+          <button onClick={() => { setShowSources(s => !s); setShowGithubScan(false) }}
             style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${showSources ? '#6366f1' : '#2a2a2a'}`, background: showSources ? 'rgba(99,102,241,0.1)' : 'none', color: showSources ? '#a5b4fc' : '#8a8a8a', cursor: 'pointer', fontSize: '11px', fontWeight: 500 }}>
             📡 Sources ({interest._count.sources})
           </button>
@@ -566,6 +646,11 @@ function InterestCard({ interest, onRemove, onSeed }: {
           </button>
         </div>
       </div>
+      {showGithubScan && (
+        <div style={{ borderTop: '1px solid #1a1a1a', padding: '12px 16px' }}>
+          <GitHubScanPanel interestId={interest.id} topic={interest.topic} onDone={() => setShowGithubScan(false)} />
+        </div>
+      )}
       {showSources && <SourcesPanel interestId={interest.id} />}
     </div>
   )

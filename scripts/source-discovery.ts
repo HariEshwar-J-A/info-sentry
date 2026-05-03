@@ -130,7 +130,7 @@ async function duckduckgoSearch(query: string): Promise<string[]> {
       const href = $(el).attr("href") ?? "";
       // DuckDuckGo uses redirect links like //duckduckgo.com/l/?uddg=https%3A...
       const match = href.match(/uddg=([^&]+)/);
-      if (match) {
+      if (match && match[1]) {
         const decoded = decodeURIComponent(match[1]);
         const d = extractDomain(decoded);
         if (d && !SKIP_DOMAINS.has(d)) domains.push(d);

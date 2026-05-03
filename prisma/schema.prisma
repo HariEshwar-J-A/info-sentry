@@ -379,3 +379,34 @@ model ForumTopic {
   telegramTopicId Int      @unique
   createdAt       DateTime @default(now())
 }
+
+// ─── GitHub Repository ───────────────────────────────────────
+model GitHubRepo {
+  id          String    @id @default(cuid())
+  interestId  String?   // which topic triggered the discovery
+  owner       String
+  repoName    String
+  fullName    String    @unique  // "owner/repo"
+  description String?
+  url         String    @unique  // https://github.com/owner/repo
+  stars       Int       @default(0)
+  forks       Int       @default(0)
+  watchers    Int       @default(0)
+  language    String?
+  topics      String[]  @default([])
+  readme      String?   // truncated README (up to 8000 chars)
+  aiSummary   String?   // optional AI-generated summary
+  defaultBranch String  @default("main")
+  lastPushed  DateTime?
+  viewedAt    DateTime?
+  scrapedAt   DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([stars])
+  @@index([forks])
+  @@index([interestId, stars])
+  @@index([language])
+  @@index([scrapedAt])
+  @@index([lastPushed])
+}
