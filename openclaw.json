@@ -137,13 +137,30 @@
 
     "prediction": {
       "soul": "agents/prediction.md",
-      "model": "deepseek-v3",
+      "model": "kimi-k2.6",
       "tools": {
         "exec": {
           "enabled": true,
           "exec_ask": false,
           "allowed_commands": [
-            "npx tsx scripts/prediction-process.ts *"
+            "npx tsx scripts/prediction-process.ts *",
+            "npx tsx scripts/prediction-verifier.ts",
+            "npx tsx scripts/prediction-verifier.ts --dryRun"
+          ]
+        }
+      }
+    },
+
+    "verifier": {
+      "soul": "agents/prediction.md",
+      "model": "kimi-k2.6",
+      "tools": {
+        "exec": {
+          "enabled": true,
+          "exec_ask": false,
+          "allowed_commands": [
+            "npx tsx scripts/prediction-verifier.ts",
+            "npx tsx scripts/prediction-verifier.ts --dryRun"
           ]
         }
       }

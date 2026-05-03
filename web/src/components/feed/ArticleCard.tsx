@@ -35,7 +35,7 @@ export function ArticleCard({ article, onFeedback }: ArticleCardProps) {
   const predictions = article.predictions ?? []
   const insightSentiment = article.insight?.userSentiment ?? null
   const relevanceColor = relevance > 0.7 ? '#22c55e' : relevance > 0.4 ? '#6366f1' : '#8a8a8a'
-
+  const isNew = !article.viewedAt
   const displayDate = article.publishedAt ?? article.scrapedAt
 
   function handleFeedback(type: 'like' | 'dislike') {
@@ -64,8 +64,16 @@ export function ArticleCard({ article, onFeedback }: ArticleCardProps) {
         gap: '10px',
       }}
     >
-      {/* Topics + insight badge */}
+      {/* Topics + badges */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+        {isNew && (
+          <span title="New" style={{
+            display: 'inline-flex', alignItems: 'center', gap: '3px',
+            fontSize: '10px', fontWeight: 700, color: '#6366f1',
+            backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '4px',
+            padding: '1px 5px', flexShrink: 0,
+          }}>● NEW</span>
+        )}
         {topics.slice(0, 3).map((topic) => (
           <Badge key={topic} variant="accent" size="sm">{topic}</Badge>
         ))}
@@ -77,7 +85,11 @@ export function ArticleCard({ article, onFeedback }: ArticleCardProps) {
       </div>
 
       {/* Title */}
-      <Link href={`/article/${article.id}`} style={{ fontSize: '15px', fontWeight: 600, color: '#f0f0f0', textDecoration: 'none', lineHeight: '1.4', display: 'block' }}>
+      <Link
+        href={`/article/${article.id}`}
+        onClick={() => { if (isNew) fetch(`/api/articles/${article.id}/viewed`, { method: 'POST' }).catch(() => {}) }}
+        style={{ fontSize: '15px', fontWeight: 600, color: '#f0f0f0', textDecoration: 'none', lineHeight: '1.4', display: 'block' }}
+      >
         {article.title}
       </Link>
 

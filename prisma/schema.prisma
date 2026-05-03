@@ -97,6 +97,7 @@ model Article {
   publishedAt    DateTime?
   dateConfidence DateConfidence @default(UNKNOWN)
   ageHours       Float?
+  viewedAt       DateTime?
   scrapedAt      DateTime       @default(now())
   analyzedAt     DateTime?
   createdAt      DateTime       @default(now())
@@ -159,6 +160,7 @@ model Prediction {
   userNotes          String?
   dueDate            DateTime?
   resolutionAnalysis String?
+  viewedAt           DateTime?
   createdAt          DateTime         @default(now())
   resolvedAt         DateTime?
   outcome            String?
@@ -346,6 +348,28 @@ model BudgetStatus {
   alertsSent     String[] @default([])
 
   @@unique([year, month])
+}
+
+// ─── Notification ────────────────────────────────────────────
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json             @default("{}")
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+enum NotificationType {
+  NEW_ARTICLE
+  NEW_PREDICTION
+  PREDICTION_VERIFIED
+  SYSTEM
 }
 
 // ─── ForumTopic ─────────────────────────────────────────────

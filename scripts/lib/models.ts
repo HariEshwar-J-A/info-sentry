@@ -18,6 +18,32 @@ export interface ModelConfig {
   readonly security: "high" | "medium" | "low";
 }
 
+// Kimi K2.6 — primary for prediction/reasoning (best chain-of-thought)
+export const KIMI_K2: ModelConfig = {
+  id: "moonshotai/kimi-k2.6",
+  name: "Kimi K2.6",
+  provider: "openrouter",
+  tier: 1,
+  promptCostPer1M: 0.50,
+  completionCostPer1M: 2.50,
+  contextWindow: 128000,
+  intelligence: "high",
+  security: "medium",
+};
+
+// DeepSeek V3.2 — fallback for prediction when budget is tight
+export const DEEPSEEK_V3: ModelConfig = {
+  id: "deepseek/deepseek-v3.2",
+  name: "DeepSeek V3.2",
+  provider: "openrouter",
+  tier: 2,
+  promptCostPer1M: 0.28,
+  completionCostPer1M: 0.88,
+  contextWindow: 65536,
+  intelligence: "high",
+  security: "medium",
+};
+
 // Tier 1: Premium ($0.50/1M +) - DeepSeek for analysis
 const TIER_1_ANALYST: ModelConfig = {
   id: "deepseek/deepseek-r1",
@@ -72,17 +98,16 @@ const TIER_4_FREE: ModelConfig = {
 
 // Model selection by budget tier
 export const MODELS_BY_TIER = {
-  1: { ANALYST: TIER_1_ANALYST, PREDICTION: TIER_1_ANALYST },
-  2: { ANALYST: TIER_2_BALANCED, PREDICTION: TIER_2_BALANCED },
+  1: { ANALYST: TIER_1_ANALYST, PREDICTION: KIMI_K2 },
+  2: { ANALYST: TIER_2_BALANCED, PREDICTION: DEEPSEEK_V3 },
   3: { ANALYST: TIER_3_BUDGET, PREDICTION: TIER_3_BUDGET },
   4: { ANALYST: TIER_4_FREE, PREDICTION: TIER_4_FREE },
 } as const;
 
-// Default legacy exports for backward compatibility
-// Using DeepSeek by default (better rate limits on OpenRouter)
+// Default exports — kimi-k2.6 is primary for predictions/reasoning
 export const MODELS = {
   ANALYST: TIER_1_ANALYST,
-  PREDICTION: TIER_1_ANALYST,
+  PREDICTION: KIMI_K2,
   FEEDBACK: TIER_3_BUDGET,
   MANAGER: TIER_3_BUDGET,
 };

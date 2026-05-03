@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 
@@ -14,6 +14,7 @@ interface Prediction {
   trackedByUser?: boolean
   dueDate?: Date | string | null
   resolutionAnalysis?: string | null
+  viewedAt?: Date | string | null
 }
 
 interface PredictionCardProps {
@@ -30,6 +31,13 @@ export function PredictionCard({ prediction: initial }: PredictionCardProps) {
   const [resolving, setResolving] = useState(false)
   const [showResolveMenu, setShowResolveMenu] = useState(false)
   const [analysis, setAnalysis] = useState(initial.resolutionAnalysis ?? '')
+  const isNew = !initial.viewedAt
+
+  useEffect(() => {
+    if (!initial.viewedAt) {
+      fetch(`/api/predictions/${initial.id}/viewed`, { method: 'POST' }).catch(() => {})
+    }
+  }, [initial.id, initial.viewedAt])
 
   const confidenceColor = pred.confidence > 0.7 ? '#22c55e' : pred.confidence > 0.5 ? '#eab308' : '#ef4444'
 
@@ -60,9 +68,15 @@ export function PredictionCard({ prediction: initial }: PredictionCardProps) {
   }
 
   return (
-    <div style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div style={{ backgroundColor: '#111111', border: `1px solid ${isNew ? 'rgba(99,102,241,0.3)' : '#1f1f1f'}`, borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {/* Status + horizon + tracking */}
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {isNew && pred.status === 'PENDING' && (
+          <span style={{ fontSize: '10px', fontWeight: 700, color: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '4px', padding: '1px 5px' }}>● NEW</span>
+        )}
+        {isNew && pred.status !== 'PENDING' && (
+          <span style={{ fontSize: '10px', fontWeight: 700, color: '#eab308', backgroundColor: 'rgba(234,179,8,0.12)', borderRadius: '4px', padding: '1px 5px' }}>● RESULT</span>
+        )}
         <Badge variant={statusVariant[pred.status] ?? 'default'} size="sm">
           {pred.status.replace('_', ' ')}
         </Badge>

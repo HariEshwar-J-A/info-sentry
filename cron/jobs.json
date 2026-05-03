@@ -44,6 +44,14 @@
       "description": "Auto-approve high-confidence predictions",
       "agent": "manager",
       "exec": "npx tsx scripts/validation-queue.ts --action=auto-approve-high-confidence"
+    },
+    {
+      "name": "prediction-verifier",
+      "schedule": "0 */6 * * *",
+      "description": "Verify tracked predictions against recent news (kimi-k2.6 reasoning) at 00:00, 06:00, 12:00, 18:00",
+      "agent": "verifier",
+      "exec": "npx tsx scripts/prediction-verifier.ts",
+      "condition": "budgetCheck"
     }
   ]
 }

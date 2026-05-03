@@ -10,6 +10,7 @@ export interface PredictionSnippet {
   timeHorizon: string | null
   trackedByUser: boolean
   resolutionAnalysis: string | null
+  viewedAt: Date | null
 }
 
 export interface ArticleInsightSnippet {
@@ -24,6 +25,7 @@ export interface ArticleWithSummary {
   status: string
   scrapedAt: Date
   publishedAt: Date | null
+  viewedAt: Date | null
   source: { id: string; name: string; trustScore: number }
   summary: {
     id: string
@@ -124,6 +126,7 @@ export async function getFeedArticles(options?: {
           timeHorizon: true,
           trackedByUser: true,
           resolutionAnalysis: true,
+          viewedAt: true,
         },
       },
       insight: {

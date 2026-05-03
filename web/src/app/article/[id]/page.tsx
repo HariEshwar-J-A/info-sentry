@@ -118,6 +118,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
   )
 
   return (
+    <>
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar title="Article" actions={actions} />
 
@@ -332,7 +333,8 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     <ArticleChatPanel
       articleId={id}
       articleTitle={article.title}
-      hasExistingInsight={!!('insight' in article && article.insight)}
+      hasExistingInsight={!!('insight' in article && (article as { insight?: unknown }).insight)}
     />
+    </>
   )
 }
