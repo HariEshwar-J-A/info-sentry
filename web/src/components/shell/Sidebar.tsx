@@ -270,6 +270,23 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* Logout — only visible when auth is active */}
+      {typeof window !== 'undefined' && document.cookie.includes('is_auth') && (
+        <div style={{ padding: '0 10px 4px' }}>
+          <button
+            onClick={() => {
+              void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/login' })
+            }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: '13px' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ef4444'; (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(239,68,68,0.06)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#555'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign out
+          </button>
+        </div>
+      )}
+
       {/* Budget */}
       <div style={{ padding: '12px 20px 16px', borderTop: '1px solid #1a1a1a' }}>
         {budget ? (
