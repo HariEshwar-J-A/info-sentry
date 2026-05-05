@@ -348,10 +348,13 @@ function DiscoveryPanel({ interestId, onDone }: { interestId: string; onDone: ()
 
 // ─── Sources Panel ─────────────────────────────────────────
 
+type SourceFilter = 'all' | 'news' | 'github'
+
 function SourcesPanel({ interestId }: { interestId: string }) {
   const [sources, setSources] = useState<Source[]>([])
   const [loading, setLoading] = useState(true)
   const [showDiscovery, setShowDiscovery] = useState(false)
+  const [filter, setFilter] = useState<SourceFilter>('all')
 
   const loadSources = useCallback(() => {
     fetch(`/api/interests/${interestId}/sources`)
@@ -374,16 +377,25 @@ function SourcesPanel({ interestId }: { interestId: string }) {
     setSources(prev => prev.some(s => s.id === source.id) ? prev : [...prev, source])
   }
 
-  const active = sources.filter(s => s.isActive)
-  const disabled = sources.filter(s => !s.isActive)
+  const githubSources = sources.filter(s => s.type === 'GITHUB')
+  const newsSources = sources.filter(s => s.type !== 'GITHUB')
+  const visible = filter === 'github' ? githubSources : filter === 'news' ? newsSources : sources
+  const active = visible.filter(s => s.isActive)
+  const disabled = visible.filter(s => !s.isActive)
   const atLimit = sources.length >= 50
+
+  const filterTabStyle = (f: SourceFilter): React.CSSProperties => ({
+    padding: '3px 9px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 500,
+    background: filter === f ? 'rgba(99,102,241,0.2)' : 'none',
+    color: filter === f ? '#a5b4fc' : '#555',
+  })
 
   return (
     <div style={{ borderTop: '1px solid #1a1a1a', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {/* Header with discover button */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2px' }}>
         <span style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Sources ({sources.length}/50) — {active.length} active{disabled.length > 0 ? `, ${disabled.length} disabled` : ''}
+          Sources ({sources.length}/50) — {sources.filter(s => s.isActive).length} active
         </span>
         <button
           onClick={() => { setShowDiscovery(true) }}
@@ -394,6 +406,15 @@ function SourcesPanel({ interestId }: { interestId: string }) {
           🔍 {atLimit ? 'Limit reached' : 'Discover Sources'}
         </button>
       </div>
+
+      {/* Filter tabs */}
+      {sources.length > 0 && (
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
+          <button style={filterTabStyle('all')} onClick={() => setFilter('all')}>All ({sources.length})</button>
+          <button style={filterTabStyle('news')} onClick={() => setFilter('news')}>📰 News ({newsSources.length})</button>
+          <button style={filterTabStyle('github')} onClick={() => setFilter('github')}>⭐ GitHub ({githubSources.length})</button>
+        </div>
+      )}
 
       {/* Auto-discovery panel */}
       {showDiscovery && (
@@ -407,6 +428,10 @@ function SourcesPanel({ interestId }: { interestId: string }) {
         <div style={{ color: '#555', fontSize: '12px', padding: '8px 0' }}>Loading sources…</div>
       ) : sources.length === 0 ? (
         <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>No sources yet. Click "🔍 Discover Sources" to auto-find reliable domains, or add one manually below.</div>
+      ) : visible.length === 0 ? (
+        <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>
+          {filter === 'github' ? 'No GitHub sources yet — run "⭐ GitHub" scan above.' : 'No news sources yet.'}
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {active.map(s => (
@@ -423,7 +448,7 @@ function SourcesPanel({ interestId }: { interestId: string }) {
         </div>
       )}
 
-      {!atLimit && <AddSourceForm interestId={interestId} onAdded={handleAdded} />}
+      {!atLimit && filter !== 'github' && <AddSourceForm interestId={interestId} onAdded={handleAdded} />}
       {atLimit && <div style={{ fontSize: '11px', color: '#555', textAlign: 'center', padding: '8px 0' }}>Hard limit of 50 sources per topic reached. Remove some sources to add more.</div>}
     </div>
   )

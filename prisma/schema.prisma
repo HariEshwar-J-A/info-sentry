@@ -66,6 +66,7 @@ enum SourceType {
   WEB
   RSS
   API
+  GITHUB
 }
 
 enum CrawlMethod {

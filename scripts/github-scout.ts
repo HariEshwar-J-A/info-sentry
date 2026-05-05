@@ -261,6 +261,27 @@ async function processInterest(
     saved++;
   }
 
+  if (!dryRun && saved > 0) {
+    // Upsert a Source record so this interest's GitHub scan appears in the Sources panel
+    const ghSource = await db.source.upsert({
+      where: { url: `https://github.com/search?q=${encodeURIComponent(interest.topic)}&type=repositories&sort=stars` },
+      create: {
+        name: `GitHub: ${interest.topic}`,
+        url: `https://github.com/search?q=${encodeURIComponent(interest.topic)}&type=repositories&sort=stars`,
+        type: "GITHUB",
+        trustScore: 0.9,
+        isActive: true,
+      },
+      update: { isActive: true },
+    });
+    await db.interestSource.upsert({
+      where: { interestId_sourceId: { interestId: interest.id, sourceId: ghSource.id } },
+      update: {},
+      create: { interestId: interest.id, sourceId: ghSource.id },
+    });
+    console.log(`[github]   📡 Source record upserted: ${ghSource.name}`);
+  }
+
   return saved;
 }
 
