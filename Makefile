@@ -32,6 +32,16 @@ setup:    ## Install dependencies and generate Prisma client
 	@echo "  1. cp .env.example .env  (and fill in POSTGRES_PASSWORD etc.)"
 	@echo "  2. make start            (starts DB + runs migrations + starts app)"
 
+tunnel:   ## Start Cloudflare Tunnel in foreground (needs ~/.cloudflared/config.yml)
+	cloudflared tunnel run info-sentry
+
+tunnel-install: ## Install cloudflared and authenticate with Cloudflare
+	brew install cloudflare/cloudflare/cloudflared
+	cloudflared tunnel login
+	cloudflared tunnel create info-sentry
+	@echo ""
+	@echo "Next: create ~/.cloudflared/config.yml — see docs/setup.md"
+
 docker-install: ## Install Docker runtime via Homebrew (macOS)
 	brew install colima docker docker-compose
 	mkdir -p ~/.docker/cli-plugins

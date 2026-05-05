@@ -160,14 +160,24 @@ cmd_start() {
   start_service web      npm run --prefix "$ROOT/web" start
   start_service bot      npx --prefix "$ROOT" tsx "$ROOT/scripts/telegram-bot.ts"
 
+  # 3. Start Cloudflare Tunnel if configured
+  if command -v cloudflared &>/dev/null && [ -f "$HOME/.cloudflared/config.yml" ]; then
+    start_service tunnel cloudflared tunnel run info-sentry
+    ok "Cloudflare Tunnel started"
+  fi
+
   echo ""
   ok "All services running."
-  echo "   Web: http://localhost:3001"
+  echo "   Local: http://localhost:3001"
+  if command -v cloudflared &>/dev/null && [ -f "$HOME/.cloudflared/config.yml" ]; then
+    echo "   Public: check your Cloudflare tunnel hostname"
+  fi
   echo "   Stop: ./scripts/manage.sh stop  (or: make stop)"
 }
 
 cmd_stop() {
   info "Stopping application services…"
+  stop_service tunnel
   stop_service bot
   stop_service web
   stop_service gateway
@@ -228,13 +238,30 @@ cmd_dev() {
 
   echo ""
   info "Starting all services in DEV mode (Ctrl+C stops everything)…"
-  exec npx --prefix "$ROOT" concurrently \
-    --kill-others \
-    --names "gateway,web,bot" \
-    --prefix-colors "yellow,cyan,magenta" \
-    "openclaw --profile info-sentry gateway --port 18790" \
-    "npm --prefix '$ROOT/web' run dev" \
-    "npx tsx watch '$ROOT/scripts/telegram-bot.ts'"
+
+  TUNNEL_CMD=""
+  if command -v cloudflared &>/dev/null && [ -f "$HOME/.cloudflared/config.yml" ]; then
+    TUNNEL_CMD="cloudflared tunnel run info-sentry"
+  fi
+
+  if [ -n "$TUNNEL_CMD" ]; then
+    exec npx --prefix "$ROOT" concurrently \
+      --kill-others \
+      --names "gateway,web,bot,tunnel" \
+      --prefix-colors "yellow,cyan,magenta,green" \
+      "openclaw --profile info-sentry gateway --port 18790" \
+      "npm --prefix '$ROOT/web' run dev" \
+      "npx tsx watch '$ROOT/scripts/telegram-bot.ts'" \
+      "$TUNNEL_CMD"
+  else
+    exec npx --prefix "$ROOT" concurrently \
+      --kill-others \
+      --names "gateway,web,bot" \
+      --prefix-colors "yellow,cyan,magenta" \
+      "openclaw --profile info-sentry gateway --port 18790" \
+      "npm --prefix '$ROOT/web' run dev" \
+      "npx tsx watch '$ROOT/scripts/telegram-bot.ts'"
+  fi
 }
 
 # ── Dispatch ──────────────────────────────────────────────────
