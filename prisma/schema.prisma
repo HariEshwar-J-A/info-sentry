@@ -406,6 +406,7 @@ model GitHubRepo {
   forkDelta     Int       @default(0)
   fetchCount    Int       @default(1)
   scrapedAt     DateTime  @default(now())
+  notifiedAt    DateTime?                // set after posting to Telegram GitHub-Feed
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

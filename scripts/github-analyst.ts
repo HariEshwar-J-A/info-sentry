@@ -1,17 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * github-analyst.ts — Generate AI summaries for GitHub repos that have a README.
+ * github-analyst.ts — Generate AI summaries for GitHub repos that have a README,
+ *                     then post new repos to the Telegram GitHub-Feed topic.
  *
  * Usage:
  *   npx tsx scripts/github-analyst.ts                     # all repos without summary
  *   npx tsx scripts/github-analyst.ts --interestId=<id>  # one topic's repos
- *   npx tsx scripts/github-analyst.ts --limit=20          # max repos to process
+ *   npx tsx scripts/github-analyst.ts --limit=30          # max repos to process
  */
 import "dotenv/config";
 import { getScoutDb, disconnectAll } from "./lib/prisma.js";
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
 import { getModelsForCurrentBudget, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
+
+const BOT_TOKEN  = process.env["TELEGRAM_BOT_TOKEN"];
+const SUPERGROUP = process.env["TELEGRAM_SUPERGROUP_ID"];
 
 const SYSTEM_PROMPT = `You are analyzing a GitHub repository for a tech professional.
 Read the README and produce a concise 2-3 sentence summary covering:
@@ -25,7 +29,69 @@ Rules:
 - If the README is minimal, summarize from what's available
 - Output plain text, no markdown, no bullet points`
 
-// Try each model in order, falling back on any error (including finish_reason=length)
+// ─── Telegram helpers ───────────────────────────────────────
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+async function telegramApi(method: string, body: Record<string, unknown>): Promise<void> {
+  if (!BOT_TOKEN || !SUPERGROUP) return
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  const data = (await res.json()) as { ok: boolean; description?: string }
+  if (!data.ok) console.warn(`[github-analyst] Telegram ${method} failed: ${data.description}`)
+}
+
+async function postRepoToTelegram(
+  threadId: number | undefined,
+  repo: {
+    fullName: string; url: string; description: string | null; stars: number;
+    starDelta: number; language: string | null; topics: string[]; aiSummary: string | null;
+  },
+): Promise<void> {
+  if (!BOT_TOKEN || !SUPERGROUP) return
+
+  const [owner, name] = repo.fullName.split("/")
+  const trendBadge = repo.starDelta > 0 ? ` +${fmtNum(repo.starDelta)} ⭐` : ""
+  const langPart   = repo.language ? ` · ${escHtml(repo.language)}` : ""
+
+  const lines: string[] = [
+    `⭐ <b><a href="${repo.url}">${escHtml(owner ?? "")}/${escHtml(name ?? "")}</a></b>${trendBadge}`,
+    `<i>${fmtNum(repo.stars)} stars${langPart}</i>`,
+  ]
+
+  if (repo.description) lines.push("", escHtml(repo.description))
+  if (repo.aiSummary)   lines.push("", `🤖 ${escHtml(repo.aiSummary)}`)
+
+  const visibleTopics = repo.topics.slice(0, 5)
+  if (visibleTopics.length > 0) {
+    lines.push("", visibleTopics.map(t => `#${t.replace(/-/g, "_")}`).join(" "))
+  }
+
+  const text = lines.join("\n")
+  const body: Record<string, unknown> = {
+    chat_id: SUPERGROUP,
+    text: text.slice(0, 4096),
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+  }
+  if (threadId !== undefined) body["message_thread_id"] = threadId
+
+  await telegramApi("sendMessage", body)
+}
+
+// ─── LLM summarization with model fallback chain ────────────
+
 async function summarizeWithFallback(
   context: string,
   candidates: ModelConfig[],
@@ -44,11 +110,13 @@ async function summarizeWithFallback(
       return { response, model }
     } catch (err) {
       lastErr = err as Error
-      console.warn(`[github-analyst]   ↩ ${model.name} failed (${lastErr.message.split('\n')[0]}) — trying next`)
+      console.warn(`[github-analyst]   ↩ ${model.name} failed (${lastErr.message.split("\n")[0]}) — trying next`)
     }
   }
   throw lastErr ?? new Error("All models failed")
 }
+
+// ─── Main ───────────────────────────────────────────────────
 
 async function main() {
   const args = Object.fromEntries(
@@ -57,6 +125,14 @@ async function main() {
 
   const limit = parseInt(args.limit ?? "30", 10)
   const db = getScoutDb()
+
+  // Resolve GitHub-Feed Telegram thread
+  let githubFeedThreadId: number | undefined
+  if (BOT_TOKEN && SUPERGROUP) {
+    const topic = await db.forumTopic.findUnique({ where: { name: "GitHub-Feed" } })
+    githubFeedThreadId = topic?.telegramTopicId
+    console.log(`[github-analyst] GitHub-Feed thread: ${githubFeedThreadId ?? "not found (run ensure-all)"}`)
+  }
 
   if (!(await canSpend("github-analyst"))) {
     console.log("[github-analyst] Budget exceeded — skipping")
@@ -73,23 +149,22 @@ async function main() {
   )
   console.log(`[github-analyst] Model chain: ${fallbackModels.map(m => m.name).join(" → ")}`)
 
-  const where = {
-    aiSummary: null,
-    readme: { not: null },
-    ...(args.interestId ? { interestId: args.interestId } : {}),
-  }
-
-  const repos = await db.gitHubRepo.findMany({
-    where,
+  // ── Phase 1: generate summaries for repos that have a README but no summary ──
+  const toSummarize = await db.gitHubRepo.findMany({
+    where: {
+      aiSummary: null,
+      readme: { not: null },
+      ...(args.interestId ? { interestId: args.interestId } : {}),
+    },
     orderBy: { stars: "desc" },
     take: limit,
     select: { id: true, fullName: true, description: true, readme: true, stars: true, language: true, topics: true },
   })
 
-  console.log(`[github-analyst] ${repos.length} repos to summarize`)
+  console.log(`[github-analyst] ${toSummarize.length} repos to summarize`)
 
   let processed = 0
-  for (const repo of repos) {
+  for (const repo of toSummarize) {
     try {
       const readmeSnippet = repo.readme?.slice(0, 4000) ?? ""
       const context = [
@@ -104,10 +179,11 @@ async function main() {
       ].filter(Boolean).join("\n")
 
       const { response, model } = await summarizeWithFallback(context, fallbackModels)
+      const aiSummary = response.content.trim()
 
       await db.gitHubRepo.update({
         where: { id: repo.id },
-        data: { aiSummary: response.content.trim() },
+        data: { aiSummary },
       })
 
       await logCost("github-analyst", model, response.promptTokens, response.completionTokens, response.generationId)
@@ -118,7 +194,37 @@ async function main() {
     }
   }
 
-  console.log(`[github-analyst] Done: ${processed}/${repos.length} summaries generated`)
+  console.log(`[github-analyst] Done: ${processed}/${toSummarize.length} summaries generated`)
+
+  // ── Phase 2: post unnotified repos to Telegram GitHub-Feed ──────────────────
+  const toNotify = await db.gitHubRepo.findMany({
+    where: {
+      notifiedAt: null,
+      ...(args.interestId ? { interestId: args.interestId } : {}),
+    },
+    orderBy: { stars: "desc" },
+    take: 50,
+    select: {
+      id: true, fullName: true, url: true, description: true,
+      stars: true, starDelta: true, language: true, topics: true, aiSummary: true,
+    },
+  })
+
+  if (toNotify.length === 0) {
+    console.log("[github-analyst] No new repos to notify")
+  } else {
+    console.log(`[github-analyst] Posting ${toNotify.length} new repo(s) to GitHub-Feed`)
+    for (const repo of toNotify) {
+      try {
+        await postRepoToTelegram(githubFeedThreadId, repo)
+        await db.gitHubRepo.update({ where: { id: repo.id }, data: { notifiedAt: new Date() } })
+        console.log(`[github-analyst] 📨 Notified: ${repo.fullName}`)
+      } catch (err) {
+        console.error(`[github-analyst] ✗ notify ${repo.fullName}: ${(err as Error).message}`)
+      }
+    }
+  }
+
   await disconnectAll()
 }
 
