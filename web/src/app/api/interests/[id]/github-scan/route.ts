@@ -50,24 +50,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         send('system', `⭐ GitHub pipeline for "${interest.topic}"`)
         send('system', '─'.repeat(50))
 
-        // Stage 1: Scout — discover repos
-        const scoutOk = await runScript(
+        // Stage 1: Scout — discover + upsert repos
+        await runScript(
           'GitHub Scout — find repositories',
           'scripts/github-scout.ts',
           [`--interestId=${id}`, ...(dryRun ? ['--dryRun'] : [])],
         )
 
-        if (scoutOk && !dryRun) {
-          // Stage 2: Analyst — generate AI summaries from READMEs
+        if (!dryRun) {
+          // Stage 2: Analyst — generate AI summaries for any repos without one
+          // Runs regardless of scout exit code: existing repos may still need summaries
           await runScript(
             'GitHub Analyst — generate AI summaries',
             'scripts/github-analyst.ts',
-            [`--interestId=${id}`, '--limit=20'],
+            [`--interestId=${id}`, '--limit=30'],
           )
         }
 
         send('system', '─'.repeat(50))
-        send('system', '✅ Complete! Visit GitHub Feed to see results with AI summaries.')
+        send('system', '✅ Complete! Visit GitHub Feed to see results.')
       } catch (err) {
         send('error', (err as Error).message)
       } finally {

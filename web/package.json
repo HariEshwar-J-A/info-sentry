@@ -6,11 +6,9 @@
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
-    "lint": "next lint",
-    "postinstall": "node -e \"const{cpSync}=require('fs');try{cpSync('../node_modules/.prisma/client','node_modules/.prisma/client',{recursive:true,force:true})}catch(e){console.warn('Prisma client sync skipped:',e.message)}\""
+    "lint": "next lint"
   },
   "dependencies": {
-    "@prisma/client": "^6.7.0",
     "next": "^15.3.3",
     "openai": "^4.80.0",
     "react": "^19.0.0",
@@ -25,8 +23,5 @@
     "@types/react-dom": "^19.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.8.0"
-  },
-  "prisma": {
-    "schema": "../prisma/schema.prisma"
   }
 }
