@@ -11,7 +11,7 @@ import "dotenv/config";
 import { getScoutDb, disconnectAll } from "./lib/prisma.js";
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
-import { getModelsForCurrentBudget } from "./lib/models.js";
+import { getModelsForCurrentBudget, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
 
 const SYSTEM_PROMPT = `You are analyzing a GitHub repository for a tech professional.
 Read the README and produce a concise 2-3 sentence summary covering:
@@ -24,6 +24,31 @@ Rules:
 - Focus on what a developer needs to know
 - If the README is minimal, summarize from what's available
 - Output plain text, no markdown, no bullet points`
+
+// Try each model in order, falling back on any error (including finish_reason=length)
+async function summarizeWithFallback(
+  context: string,
+  candidates: ModelConfig[],
+): Promise<{ response: Awaited<ReturnType<typeof chatCompletion>>; model: ModelConfig }> {
+  let lastErr: Error | undefined
+  for (const model of candidates) {
+    try {
+      const response = await chatCompletion(
+        model.id,
+        [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: context },
+        ],
+        { temperature: 0.3, maxTokens: 400 },
+      )
+      return { response, model }
+    } catch (err) {
+      lastErr = err as Error
+      console.warn(`[github-analyst]   ↩ ${model.name} failed (${lastErr.message.split('\n')[0]}) — trying next`)
+    }
+  }
+  throw lastErr ?? new Error("All models failed")
+}
 
 async function main() {
   const args = Object.fromEntries(
@@ -40,8 +65,13 @@ async function main() {
   }
 
   const models = await getModelsForCurrentBudget(getMonthlySpend)
-  const model = models.ANALYST
-  console.log(`[github-analyst] Using model: ${model.name}`)
+  // Use SUMMARIZER (Gemini Flash) — never a reasoning model like DeepSeek R1.
+  // Reasoning models burn maxTokens on chain-of-thought before answering, producing finish_reason=length.
+  const primaryModel = models.SUMMARIZER
+  const fallbackModels: ModelConfig[] = [primaryModel, TIER_3_BUDGET].filter(
+    (m, i, arr) => arr.findIndex(x => x.id === m.id) === i, // dedupe
+  )
+  console.log(`[github-analyst] Model chain: ${fallbackModels.map(m => m.name).join(" → ")}`)
 
   const where = {
     aiSummary: null,
@@ -73,14 +103,7 @@ async function main() {
         readmeSnippet,
       ].filter(Boolean).join("\n")
 
-      const response = await chatCompletion(
-        model.id,
-        [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: context },
-        ],
-        { temperature: 0.3, maxTokens: 250 },
-      )
+      const { response, model } = await summarizeWithFallback(context, fallbackModels)
 
       await db.gitHubRepo.update({
         where: { id: repo.id },

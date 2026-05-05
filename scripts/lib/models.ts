@@ -58,7 +58,7 @@ const TIER_1_ANALYST: ModelConfig = {
 };
 
 // Tier 2: Balanced ($0.10-0.50/1M) - Google Gemini
-const TIER_2_BALANCED: ModelConfig = {
+export const TIER_2_BALANCED: ModelConfig = {
   id: "google/gemini-2.0-flash-001",
   name: "Gemini 2.0 Flash",
   provider: "openrouter",
@@ -71,7 +71,7 @@ const TIER_2_BALANCED: ModelConfig = {
 };
 
 // Tier 3: Budget ($0.05-0.10/1M) - GPT Mini
-const TIER_3_BUDGET: ModelConfig = {
+export const TIER_3_BUDGET: ModelConfig = {
   id: "openai/gpt-4o-mini",
   name: "GPT-4o Mini",
   provider: "openrouter",
@@ -98,16 +98,18 @@ const TIER_4_FREE: ModelConfig = {
 
 // Model selection by budget tier
 export const MODELS_BY_TIER = {
-  1: { ANALYST: TIER_1_ANALYST, PREDICTION: KIMI_K2 },
-  2: { ANALYST: TIER_2_BALANCED, PREDICTION: DEEPSEEK_V3 },
-  3: { ANALYST: TIER_3_BUDGET, PREDICTION: TIER_3_BUDGET },
-  4: { ANALYST: TIER_4_FREE, PREDICTION: TIER_4_FREE },
+  1: { ANALYST: TIER_1_ANALYST, PREDICTION: KIMI_K2, SUMMARIZER: TIER_2_BALANCED },
+  2: { ANALYST: TIER_2_BALANCED, PREDICTION: DEEPSEEK_V3, SUMMARIZER: TIER_2_BALANCED },
+  3: { ANALYST: TIER_3_BUDGET, PREDICTION: TIER_3_BUDGET, SUMMARIZER: TIER_3_BUDGET },
+  4: { ANALYST: TIER_4_FREE, PREDICTION: TIER_4_FREE, SUMMARIZER: TIER_4_FREE },
 } as const;
 
 // Default exports — kimi-k2.6 is primary for predictions/reasoning
 export const MODELS = {
   ANALYST: TIER_1_ANALYST,
   PREDICTION: KIMI_K2,
+  // SUMMARIZER always starts from Gemini Flash — never a reasoning model
+  SUMMARIZER: TIER_2_BALANCED,
   FEEDBACK: TIER_3_BUDGET,
   MANAGER: TIER_3_BUDGET,
 };
@@ -154,7 +156,7 @@ export async function getBudgetTier(
 // Get models for current budget situation
 export async function getModelsForCurrentBudget(
   getMonthlySpend: () => Promise<number>,
-): Promise<{ ANALYST: ModelConfig; PREDICTION: ModelConfig }> {
+): Promise<{ ANALYST: ModelConfig; PREDICTION: ModelConfig; SUMMARIZER: ModelConfig }> {
   const tier = await getBudgetTier(getMonthlySpend);
   return MODELS_BY_TIER[tier];
 }
