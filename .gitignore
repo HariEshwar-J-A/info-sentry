@@ -4,6 +4,10 @@ dist/
 logs/
 *.log
 *.tsbuildinfo
+*.bundle
+
+# Service PID files (created by scripts/manage.sh)
+.pids/
 
 # All runtime-generated data (articles, chromadb, etc.)
 data/
@@ -18,6 +22,7 @@ skills/
 .openclaw/
 memory/
 
+# OpenClaw runtime docs (auto-generated, not for source control)
 SOUL.md
 AGENTS.md
 HEARTBEAT.md
