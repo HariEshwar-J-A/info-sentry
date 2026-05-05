@@ -17,17 +17,22 @@ import { getModelsForCurrentBudget, TIER_3_BUDGET, type ModelConfig } from "./li
 const BOT_TOKEN  = process.env["TELEGRAM_BOT_TOKEN"];
 const SUPERGROUP = process.env["TELEGRAM_SUPERGROUP_ID"];
 
-const SYSTEM_PROMPT = `You are analyzing a GitHub repository for a tech professional.
-Read the README and produce a concise 2-3 sentence summary covering:
-1. What this tool/library does (be specific, no vague descriptions)
-2. The primary use case or problem it solves
-3. One notable technical aspect or why it stands out
+const SYSTEM_PROMPT = `You are a technical analyst evaluating GitHub repositories for software developers.
 
-Rules:
-- Be factual and precise — no marketing language
-- Focus on what a developer needs to know
-- If the README is minimal, summarize from what's available
-- Output plain text, no markdown, no bullet points`
+Write a detailed assessment of this repository in 5-8 sentences. Cover:
+1. Exactly what the project does — be specific about the technology and mechanism, not vague
+2. The core use cases and who would use it (e.g. "backend engineers building X", "ML engineers working on Y")
+3. Key capabilities or features that distinguish it from alternatives
+4. Technical approach, architecture, or design decisions worth knowing
+5. Why a developer should pay attention to this — what makes it noteworthy right now
+6. Any important requirements, caveats, or trade-offs to be aware of
+
+Critical rules:
+- Start DIRECTLY with the substance — absolutely do NOT write "This repository...", "Here is a summary...", "This tool...", or any meta-preamble
+- The first word should be a noun or verb describing what the project does
+- Write plain text only — no markdown, no bullet points, no headers
+- Be concrete and specific; avoid vague adjectives like "powerful", "robust", or "comprehensive"
+- Write as if briefing a senior engineer who has 60 seconds to decide if this is worth investigating`
 
 // ─── Telegram helpers ───────────────────────────────────────
 
@@ -105,7 +110,7 @@ async function summarizeWithFallback(
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: context },
         ],
-        { temperature: 0.3, maxTokens: 400 },
+        { temperature: 0.3, maxTokens: 700 },
       )
       return { response, model }
     } catch (err) {
@@ -148,6 +153,25 @@ async function main() {
     (m, i, arr) => arr.findIndex(x => x.id === m.id) === i, // dedupe
   )
   console.log(`[github-analyst] Model chain: ${fallbackModels.map(m => m.name).join(" → ")}`)
+
+  // ── Phase 0: clear summaries that contain known preamble patterns ──────────
+  // Old prompt caused the model to emit "Here is a 2-3 sentence summary of..."
+  const PREAMBLE_PATTERNS = ["Here is a", "Here's a", "This repository", "This tool", "This library", "This project"]
+  const stale = await db.gitHubRepo.findMany({
+    where: {
+      aiSummary: { not: null },
+      ...(args.interestId ? { interestId: args.interestId } : {}),
+    },
+    select: { id: true, fullName: true, aiSummary: true },
+  })
+  const toReset = stale.filter(r => PREAMBLE_PATTERNS.some(p => r.aiSummary!.startsWith(p)))
+  if (toReset.length > 0) {
+    console.log(`[github-analyst] Resetting ${toReset.length} stale summaries with preamble text`)
+    await db.gitHubRepo.updateMany({
+      where: { id: { in: toReset.map(r => r.id) } },
+      data: { aiSummary: null },
+    })
+  }
 
   // ── Phase 1: generate summaries for repos that have a README but no summary ──
   const toSummarize = await db.gitHubRepo.findMany({

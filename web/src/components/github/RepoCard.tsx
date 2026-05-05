@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 
 export interface GitHubRepoData {
   id: string
@@ -52,7 +52,6 @@ const LANG_COLORS: Record<string, string> = {
 }
 
 export function RepoCard({ repo, onViewed }: { repo: GitHubRepoData; onViewed?: (id: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
   const isNew = !repo.viewedAt
   const langColor = repo.language ? (LANG_COLORS[repo.language] ?? '#888') : '#555'
 
@@ -158,38 +157,31 @@ export function RepoCard({ repo, onViewed }: { repo: GitHubRepoData; onViewed?: 
         )}
       </div>
 
-      {/* AI Summary (expandable) */}
-      {repo.aiSummary && (
-        <div style={{ borderTop: '1px solid #1a1a1a' }}>
-          <button
-            onClick={e => { e.stopPropagation(); setExpanded(!expanded) }}
-            style={{ width: '100%', padding: '8px 18px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#6366f1' }}
-          >
-            <span>✦ AI Summary</span>
-            <span>{expanded ? '▲' : '▼'}</span>
-          </button>
-          {expanded && (
-            <div style={{ padding: '0 18px 14px', fontSize: '12px', color: '#8a8a8a', lineHeight: '1.6', borderTop: '1px solid #1a1a1a', paddingTop: '10px' }}>
-              {repo.aiSummary}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Footer */}
-      <div style={{ marginTop: 'auto', padding: '10px 18px', borderTop: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ marginTop: 'auto', padding: '10px 18px', borderTop: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
         <span style={{ fontSize: '11px', color: '#444' }}>
           found {timeAgo(repo.scrapedAt)}
         </span>
-        <a
-          href={repo.url}
-          target="_blank"
-          rel="noreferrer"
-          onClick={e => e.stopPropagation()}
-          style={{ fontSize: '11px', color: '#6366f1', textDecoration: 'none', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
-        >
-          View on GitHub →
-        </a>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {repo.aiSummary && (
+            <a
+              href={`/github-feed/${repo.id}`}
+              onClick={e => e.stopPropagation()}
+              style={{ fontSize: '11px', color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}
+            >
+              ✦ Analysis →
+            </a>
+          )}
+          <a
+            href={repo.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{ fontSize: '11px', color: '#555', textDecoration: 'none', fontWeight: 500 }}
+          >
+            GitHub →
+          </a>
+        </div>
       </div>
     </div>
   )
