@@ -184,12 +184,12 @@ export function Sidebar() {
   }
 
   return (
-    <aside style={{ position: 'fixed', top: 0, left: 0, width: '240px', height: '100vh', backgroundColor: '#0d0d0d', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', zIndex: 100 }}>
+    <aside className="layout-sidebar">
       {/* Logo */}
-      <div style={{ padding: '24px 20px 20px', borderBottom: '1px solid #1a1a1a' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>◉</div>
-          <div>
+      <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid #1a1a1a' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
+          <div style={{ width: '28px', height: '28px', flexShrink: 0, borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>◉</div>
+          <div className="sidebar-logo-text">
             <div style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0', letterSpacing: '-0.02em' }}>Info-Sentry</div>
             <div style={{ fontSize: '11px', color: '#8a8a8a' }}>AI News Intelligence</div>
           </div>
@@ -197,34 +197,35 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: '12px 10px', overflow: 'auto' }}>
+      <nav style={{ flex: 1, padding: '12px 8px', overflow: 'auto' }}>
         {NAV.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
           return (
-            <Link key={item.href} href={item.href} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', marginBottom: '2px', fontSize: '14px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s' }}
+            <Link key={item.href} href={item.href} title={item.label}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', marginBottom: '2px', fontSize: '14px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s', justifyContent: 'flex-start' }}
               onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#d0d0d0'; (e.currentTarget as HTMLElement).style.backgroundColor = '#141414' } }}
               onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#8a8a8a'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' } }}
             >
-              <span style={{ color: isActive ? '#6366f1' : 'currentColor', opacity: isActive ? 1 : 0.7 }}>{item.icon}</span>
-              {item.label}
+              <span style={{ color: isActive ? '#6366f1' : 'currentColor', opacity: isActive ? 1 : 0.7, flexShrink: 0 }}>{item.icon}</span>
+              <span className="sidebar-label">{item.label}</span>
             </Link>
           )
         })}
       </nav>
 
       {/* Notification Bell */}
-      <div style={{ padding: '4px 10px 4px', position: 'relative' }}>
+      <div className="sidebar-notif-label" style={{ padding: '4px 8px', position: 'relative' }}>
         <button ref={bellRef} onClick={() => setNotifOpen(o => !o)}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', background: notifOpen ? '#1a1a1a' : 'none', border: 'none', cursor: 'pointer', color: unreadCount > 0 ? '#d0d0d0' : '#8a8a8a', fontSize: '14px', transition: 'all 0.15s' }}>
-          <span style={{ opacity: unreadCount > 0 ? 1 : 0.7, color: unreadCount > 0 ? '#6366f1' : 'currentColor', position: 'relative' }}>
+          <span style={{ opacity: unreadCount > 0 ? 1 : 0.7, color: unreadCount > 0 ? '#6366f1' : 'currentColor', position: 'relative', flexShrink: 0 }}>
             <BellIcon />
             {unreadCount > 0 && (
               <span style={{ position: 'absolute', top: '-3px', right: '-3px', width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse-dot 1.5s ease-in-out infinite', border: '1.5px solid #0d0d0d' }} />
             )}
           </span>
-          <span>Notifications</span>
+          <span className="sidebar-label">Notifications</span>
           {unreadCount > 0 && (
-            <span style={{ marginLeft: 'auto', minWidth: '18px', height: '18px', borderRadius: '9px', backgroundColor: '#6366f1', color: '#fff', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
+            <span className="sidebar-label" style={{ marginLeft: 'auto', minWidth: '18px', height: '18px', borderRadius: '9px', backgroundColor: '#6366f1', color: '#fff', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
@@ -232,7 +233,7 @@ export function Sidebar() {
 
         {/* Dropdown */}
         {notifOpen && (
-          <div ref={dropRef} style={{ position: 'fixed', left: '240px', bottom: '100px', width: '340px', backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', zIndex: 200, overflow: 'hidden', maxHeight: '500px', display: 'flex', flexDirection: 'column' }}>
+          <div ref={dropRef} style={{ position: 'fixed', left: 'calc(var(--sidebar-w) + 4px)', bottom: '100px', width: '340px', backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', zIndex: 200, overflow: 'hidden', maxHeight: '500px', display: 'flex', flexDirection: 'column' }}>
             {/* Header */}
             <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '13px', fontWeight: 600, color: '#f0f0f0' }}>Notifications</span>
@@ -288,7 +289,7 @@ export function Sidebar() {
       )}
 
       {/* Budget */}
-      <div style={{ padding: '12px 20px 16px', borderTop: '1px solid #1a1a1a' }}>
+      <div className="sidebar-budget" style={{ padding: '12px 20px 16px', borderTop: '1px solid #1a1a1a' }}>
         {budget ? (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>

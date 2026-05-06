@@ -1,101 +1,73 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import React, { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
+const ERROR_MESSAGES: Record<string, string> = {
+  oauth_denied:    'Google sign-in was cancelled.',
+  state_mismatch:  'Security check failed — please try again.',
+  token_exchange:  'Failed to complete sign-in. Please try again.',
+  userinfo:        'Could not retrieve your Google account info.',
+}
+
 function LoginForm() {
-  const router   = useRouter()
-  const params   = useSearchParams()
-  const userRef  = useRef<HTMLInputElement>(null)
-  const [user, setUser] = useState('')
-  const [pw, setPw]     = useState('')
-  const [err, setErr]   = useState<string | null>(null)
+  const params  = useSearchParams()
   const [loading, setLoading] = useState(false)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setErr(null)
-
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pw }),
-    })
-
-    if (res.ok) {
-      const next = params.get('next') ?? '/'
-      router.push(next)
-    } else {
-      setErr('Invalid credentials')
-      setPw('')
-      setLoading(false)
-      userRef.current?.focus()
-    }
-  }
-
-  const inputStyle = (hasErr: boolean): React.CSSProperties => ({
-    width: '100%', boxSizing: 'border-box',
-    padding: '12px 14px', borderRadius: '10px',
-    background: '#111', border: `1px solid ${hasErr ? 'rgba(239,68,68,0.5)' : '#2a2a2a'}`,
-    color: '#f0f0f0', fontSize: '15px', outline: 'none',
-  })
+  const errorKey = params.get('error')
+  const errMsg   = errorKey ? (ERROR_MESSAGES[errorKey] ?? 'Sign-in failed. Please try again.') : null
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
       <div style={{ width: '100%', maxWidth: '360px' }}>
+
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '48px' }}>
           <div style={{ fontSize: '28px', fontWeight: 800, color: '#f0f0f0', letterSpacing: '-0.02em' }}>
             Info<span style={{ color: '#6366f1' }}>Sentry</span>
           </div>
           <div style={{ fontSize: '13px', color: '#555', marginTop: '6px' }}>Personal intelligence dashboard</div>
         </div>
 
-        <form onSubmit={e => void handleSubmit(e)} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <input
-            ref={userRef}
-            type="text"
-            value={user}
-            onChange={e => setUser(e.target.value)}
-            placeholder="Username"
-            autoComplete="username"
-            autoFocus
-            required
-            style={inputStyle(!!err)}
-          />
-          <input
-            type="password"
-            value={pw}
-            onChange={e => setPw(e.target.value)}
-            placeholder="Password"
-            autoComplete="current-password"
-            required
-            style={inputStyle(!!err)}
-          />
+        {/* Error */}
+        {errMsg && (
+          <div style={{ marginBottom: '16px', padding: '10px 14px', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', fontSize: '13px', color: '#ef4444', textAlign: 'center' }}>
+            {errMsg}
+          </div>
+        )}
 
-          {err && (
-            <div style={{ fontSize: '12px', color: '#ef4444', textAlign: 'center' }}>{err}</div>
+        {/* Google sign-in button */}
+        <a
+          href="/api/auth/google"
+          onClick={() => setLoading(true)}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+            padding: '13px 20px', borderRadius: '10px',
+            backgroundColor: loading ? '#1a1a1a' : '#fff',
+            border: '1px solid #e0e0e0',
+            color: loading ? '#555' : '#1a1a1a',
+            fontSize: '15px', fontWeight: 600,
+            textDecoration: 'none',
+            transition: 'background 0.15s, opacity 0.15s',
+            opacity: loading ? 0.7 : 1,
+            cursor: loading ? 'default' : 'pointer',
+            pointerEvents: loading ? 'none' : 'auto',
+          }}
+        >
+          {/* Google logo SVG */}
+          {!loading && (
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
           )}
-
-          <button
-            type="submit"
-            disabled={loading || !user || !pw}
-            style={{
-              padding: '12px', borderRadius: '10px', border: 'none',
-              background: loading || !user || !pw ? '#1a1a1a' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              color: loading || !user || !pw ? '#555' : '#fff',
-              fontSize: '14px', fontWeight: 600,
-              cursor: loading || !user || !pw ? 'default' : 'pointer',
-            }}
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+          {loading ? 'Redirecting to Google…' : 'Continue with Google'}
+        </a>
 
         <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '11px', color: '#333' }}>
-          Protected by app-level password auth
+          Access restricted to authorised accounts only
         </div>
       </div>
     </div>

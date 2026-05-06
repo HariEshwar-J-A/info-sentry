@@ -338,7 +338,7 @@ export default function SourcesPage() {
         subtitle={`${sources.length} sources · ${totalArticles} articles · ${totalTopicLinks} topics covered`}
       />
 
-      <div style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         {/* Controls */}
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
           <input

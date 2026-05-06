@@ -173,7 +173,7 @@ export default function PredictionsPage() {
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar title="Predictions" subtitle="Track, verify, and learn from AI predictions" />
 
-      <div style={{ padding: '24px 32px' }}>
+      <div className="page-content">
         {/* Tab bar */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
           {TABS.map(t => (

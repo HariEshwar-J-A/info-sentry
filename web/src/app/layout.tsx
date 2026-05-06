@@ -1,17 +1,21 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import { Sidebar } from '@/components/shell/Sidebar'
+import { Sidebar }   from '@/components/shell/Sidebar'
+import { BottomNav } from '@/components/shell/BottomNav'
 
 export const metadata: Metadata = {
   title: 'Info-Sentry',
   description: 'Personal AI news intelligence system',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,   // prevent accidental zoom-to-text on form focus
+  userScalable: false,
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
       <head>
@@ -22,26 +26,12 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body
-        style={{
-          backgroundColor: '#0a0a0a',
-          color: '#f0f0f0',
-          margin: 0,
-          display: 'flex',
-          minHeight: '100vh',
-        }}
-      >
+      <body style={{ backgroundColor: '#0a0a0a', color: '#f0f0f0', margin: 0, display: 'flex', minHeight: '100vh' }}>
         <Sidebar />
-        <main
-          style={{
-            flex: 1,
-            marginLeft: '240px',
-            minHeight: '100vh',
-            overflowY: 'auto',
-          }}
-        >
+        <main className="layout-main">
           {children}
         </main>
+        <BottomNav />
       </body>
     </html>
   )

@@ -1,9 +1,8 @@
 import { cookies } from 'next/headers'
 
-export const runtime = 'edge'
-
 export async function POST() {
   const store = await cookies()
   store.delete('is_auth')
-  return Response.json({ ok: true })
+  const appUrl = process.env.APP_URL ?? 'https://sentry.harieshwar.dev'
+  return Response.redirect(`${appUrl}/login`)
 }

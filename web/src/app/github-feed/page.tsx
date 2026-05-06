@@ -84,7 +84,7 @@ function GitHubFeedClient() {
   const unreadCount = repos.filter(r => !r.viewedAt).length
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="page-content">
       {/* New repos banner */}
       {newCount > 0 && (
         <div
@@ -198,7 +198,7 @@ function GitHubFeedClient() {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '16px' }}>
+        <div className="cards-grid">
           {filtered.map(repo => (
             <RepoCard key={repo.id} repo={repo} onViewed={markViewed} />
           ))}

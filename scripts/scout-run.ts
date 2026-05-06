@@ -538,38 +538,46 @@ async function scrapeManualSource(
 
     if (isArticleTooOld(stub.publishedAt, stub.dateConfidence)) continue;
 
-    const article = await crawlArticle(stub.url);
-    if (!article) continue;
+    // Try full crawl first; if blocked (paywall/bot detection), fall back to RSS metadata
+    const crawled = await crawlArticle(stub.url);
 
-    if (globalSeen.has(article.url)) continue;
-    globalSeen.add(article.url);
+    // Use crawled content if available, otherwise fall back to RSS snippet
+    const finalUrl = crawled?.url ?? stub.url;
+    const finalTitle = crawled?.title || stub.title;
+    const finalContent = (crawled?.content && crawled.content.length >= 150)
+      ? crawled.content
+      : (stub.content && stub.content.length >= 30)
+        ? `${stub.title}\n\n${stub.content}`  // RSS metadata fallback
+        : null;
 
-    if (isArticleTooOld(article.publishedAt, article.dateConfidence)) {
-      const ageDays = article.publishedAt
-        ? ((Date.now() - article.publishedAt.getTime()) / 86_400_000).toFixed(1) : "?";
-      console.log(`[scout]   skip old (${ageDays}d): ${article.title.slice(0, 60)}`);
+    if (!finalContent) continue; // skip if truly no content
+
+    if (globalSeen.has(finalUrl)) continue;
+    globalSeen.add(finalUrl);
+
+    const finalDate = crawled?.publishedAt ?? stub.publishedAt;
+    const finalConf = crawled?.dateConfidence ?? stub.dateConfidence;
+
+    if (isArticleTooOld(finalDate, finalConf)) {
+      const ageDays = finalDate ? ((Date.now() - finalDate.getTime()) / 86_400_000).toFixed(1) : "?";
+      console.log(`[scout]   skip old (${ageDays}d): ${finalTitle.slice(0, 60)}`);
       continue;
-    }
-
-    if (!article.publishedAt && stub.publishedAt) {
-      article.publishedAt = stub.publishedAt;
-      article.dateConfidence = stub.dateConfidence;
     }
 
     const ok = await saveRawArticle(db, {
       sourceId: source.id,
-      url: article.url,
-      title: article.title || stub.title,
-      rawContent: article.content,
-      publishedAt: article.publishedAt,
-      dateConfidence: article.dateConfidence,
+      url: finalUrl,
+      title: finalTitle,
+      rawContent: finalContent,
+      publishedAt: finalDate,
+      dateConfidence: finalConf,
     });
 
     if (ok) {
       saved++;
-      const age = article.publishedAt
-        ? `${((Date.now() - article.publishedAt.getTime()) / 3_600_000).toFixed(0)}h` : "?";
-      console.log(`[scout]   ✓ [${age}] ${article.title.slice(0, 70)}`);
+      const age = finalDate ? `${((Date.now() - finalDate.getTime()) / 3_600_000).toFixed(0)}h` : "?";
+      const mode = (crawled && crawled.content.length >= 150) ? "" : " [rss]";
+      console.log(`[scout]   ✓ [${age}]${mode} ${finalTitle.slice(0, 70)}`);
     }
   }
 
