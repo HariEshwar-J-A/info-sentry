@@ -11,7 +11,11 @@ datasource db {
 // ─── User ───────────────────────────────────────────────────
 model User {
   id         String   @id @default(cuid())
-  telegramId String   @unique
+  telegramId String?  @unique // Telegram bot users only
+  googleSub  String?  @unique // Google OAuth subject (web sign-in)
+  email      String?  @unique
+  name       String?
+  picture    String?
   username   String?
   isAdmin    Boolean  @default(false)
   createdAt  DateTime @default(now())
@@ -21,6 +25,7 @@ model User {
   chatMessages ChatMessage[]
 
   @@index([telegramId])
+  @@index([googleSub])
 }
 
 // ─── Interest ───────────────────────────────────────────────
