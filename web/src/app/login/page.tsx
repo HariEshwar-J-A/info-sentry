@@ -9,6 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   state_mismatch:  'Security check failed — please try again.',
   token_exchange:  'Failed to complete sign-in. Please try again.',
   userinfo:        'Could not retrieve your Google account info.',
+  unauthorized:    'This account is not authorized. Use the link below if you were redirected here.',
 }
 
 function LoginForm() {

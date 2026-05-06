@@ -62,7 +62,7 @@ export async function GET(req: Request) {
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean)
   if (allowed.length > 0 && !allowed.includes(user.email.toLowerCase())) {
-    return NextResponse.redirect(`${appUrl}/login?error=unauthorized`)
+    return NextResponse.redirect(`${appUrl}/login/unauthorized`)
   }
 
   const dbUser = await prisma.user.upsert({
