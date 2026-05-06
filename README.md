@@ -28,6 +28,8 @@ cp .env.example .env   # fill in DATABASE_URL, OPENROUTER_API_KEY, Telegram vars
 # 3. Create database tables
 make db-migrate
 
+# If migrate fails with "must be owner of table …", see **Database migrations** below.
+
 # 4. (Optional) Create Telegram forum topics
 make db-topics
 
@@ -40,6 +42,30 @@ make status     # check what's running
 ```
 
 See [`docs/setup.md`](docs/setup.md) for full configuration details.
+
+---
+
+## Database migrations
+
+Prisma applies migrations using **`DATABASE_URL`**. In Docker, tables are often **owned by `infosentry`** while `.env` may use **`openclaw_role`**, which has grants but may **not** own tables. PostgreSQL then returns **`must be owner of table …`** on `ALTER TABLE`.
+
+**Options:**
+
+1. Run migrate as the DB owner (swap user/password in the URL — see `.env` `POSTGRES_USER` / `POSTGRES_PASSWORD`):
+
+   ```bash
+   DATABASE_URL="postgresql://infosentry:<password>@127.0.0.1:5432/infosentry" npx prisma migrate deploy
+   ```
+
+2. Apply the migration SQL as owner (e.g. `docker exec -i infosentry-db psql -U infosentry -d infosentry < prisma/migrations/<name>/migration.sql`), then record it:
+
+   ```bash
+   npx prisma migrate resolve --applied "<migration_name>"
+   ```
+
+3. If a migration failed mid-run: `npx prisma migrate resolve --rolled-back "<migration_name>"` before retrying.
+
+Longer notes: [`MEMORY.md`](MEMORY.md). Agent-oriented rules: [`.cursor/rules/`](.cursor/rules/), [`.claude/`](.claude/).
 
 ---
 
@@ -119,6 +145,8 @@ make db-topics    Ensure Telegram forum topics exist in supergroup
 
 | | |
 |---|---|
+| [`MEMORY.md`](MEMORY.md) | Long-term memory, Postgres/Prisma gotchas, web auth notes |
+| [`CLAUDE.md`](CLAUDE.md) / [`.claude/CLAUDE.md`](.claude/CLAUDE.md) | AI agent instructions (migrations, multi-user) |
 | [`docs/setup.md`](docs/setup.md) | Installation and configuration |
 | [`docs/architecture.md`](docs/architecture.md) | System design and data flow |
 | [`docs/scripts-ref.md`](docs/scripts-ref.md) | All scripts reference |
