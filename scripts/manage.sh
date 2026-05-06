@@ -55,7 +55,7 @@ ensure_docker_runtime() {
 # ── DB helpers ────────────────────────────────────────────────
 cmd_db_up() {
   ensure_docker_runtime
-  info "Starting database services (PostgreSQL + ChromaDB)…"
+  info "Starting Docker stack (PostgreSQL + ChromaDB + ScrapeGraph sidecar)…"
 
   if [ ! -f "$ROOT/.env" ]; then
     err ".env not found — copy .env.example to .env and set POSTGRES_PASSWORD"
@@ -85,6 +85,24 @@ cmd_db_up() {
     sleep 2
   done
   ok "PostgreSQL ready"
+
+  if command -v curl &>/dev/null; then
+    info "Waiting for ScrapeGraph sidecar (127.0.0.1:8811)…"
+    local sg_try=0
+    until curl -sf "http://127.0.0.1:8811/health" &>/dev/null; do
+      sg_try=$((sg_try + 1))
+      if (( sg_try > 90 )); then
+        warn "ScrapeGraph not healthy yet — first build can take several minutes: docker compose build scrapegraph && docker compose up -d scrapegraph"
+        break
+      fi
+      sleep 2
+    done
+    if curl -sf "http://127.0.0.1:8811/health" &>/dev/null; then
+      ok "ScrapeGraph sidecar healthy"
+    fi
+  else
+    warn "curl not found — skipping ScrapeGraph health wait"
+  fi
 }
 
 cmd_db_down() {

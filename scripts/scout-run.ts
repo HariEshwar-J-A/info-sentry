@@ -1,20 +1,17 @@
 #!/usr/bin/env tsx
 /**
- * scout-run.ts v2 — Topic-driven parallel article discovery.
+ * scout-run.ts v3 — Multi-engine discovery + ScrapeGraphAI sidecar extraction.
  *
- * Architecture:
- *   Phase 1 (PRIMARY)     — Google News RSS per interest, parallel (5 concurrent)
- *                           Works even when InterestSource table is empty.
- *   Phase 2 (SUPPLEMENT)  — Manually linked non-Google sources, parallel (3 concurrent)
+ * Phase 1: LLM query expansion → Google News / Bing News / HN / Reddit discovery →
+ *          resolve Google News redirects → fast Cheerio fetch → SmartScraperGraph fallback.
+ * Phase 2: Manual linked sources (RSS + listing), same SGAI fallback.
  *
- * Google News RSS gives fresh, dated, topic-relevant articles for any topic.
- * Manual sources add domain-specific depth (e.g. TechCrunch for AI, IRCC for immigration).
- *
- * Env vars:
- *   MAX_ARTICLE_AGE_DAYS  (default: 3)  — skip articles older than this
- *   HISTORICAL_MODE=true               — disable age filter
- *   MAX_PER_TOPIC         (default: 10) — max articles per Google News search
- *   ARTICLES_DIR                        — raw article storage path
+ * Env:
+ *   SCRAPEGRAPH_URL (default http://127.0.0.1:8811)
+ *   SGAI_MAX_CALLS_PER_RUN (default 30)
+ *   SGAI_MIN_CONTENT_LEN (default 400)
+ *   MAX_PER_TOPIC (default 12)
+ *   MAX_ARTICLE_AGE_DAYS / HISTORICAL_MODE — unchanged
  */
 import "dotenv/config";
 import { writeFile, mkdir } from "node:fs/promises";
@@ -23,17 +20,39 @@ import { parseStringPromise } from "xml2js";
 import { load } from "cheerio";
 import { getScoutDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
+import {
+  discoverForQuery,
+  buildGoogleNewsRssUrl,
+  buildGoogleNewsWebUrl,
+  type DiscoveryStub,
+} from "./lib/search-engines.js";
+import { resolvePublisherUrl } from "./lib/google-news-resolver.js";
+import { expandQueries } from "./lib/query-expand.js";
+import { smartScrape, searchScrapeViaSidecar, type SmartScrapeResult } from "./lib/scrapegraph.js";
+import { getQueryExpandModel, getSgaiModelHint } from "./lib/scout-llm-defaults.js";
+import {
+  buildInterestSearchQuery,
+  buildSmartScrapePromptForInterests,
+  buildSearchGraphTopicAndPrompt,
+  dedupeInterestFocuses,
+  type InterestFocus,
+} from "./lib/scout-interest-focus.js";
 
 // ─── Config ────────────────────────────────────────────────
 
 const ARTICLES_DIR = process.env["ARTICLES_DIR"] ?? "./data/articles";
-const MAX_PER_TOPIC = parseInt(process.env["MAX_PER_TOPIC"] ?? "10", 10);
+const MAX_PER_TOPIC = parseInt(process.env["MAX_PER_TOPIC"] ?? "12", 10);
 const MAX_PER_SOURCE = 8;
 const MAX_ARTICLE_AGE_DAYS = parseInt(process.env["MAX_ARTICLE_AGE_DAYS"] ?? "3", 10);
 const HISTORICAL_MODE = process.env["HISTORICAL_MODE"] === "true";
-const PHASE1_CONCURRENCY = 5;  // parallel Google News searches
-const PHASE2_CONCURRENCY = 3;  // parallel manual source scrapes
+const PHASE1_CONCURRENCY = 3;
+const PHASE2_CONCURRENCY = 3;
 const CRAWL_TIMEOUT_MS = 15_000;
+const SGAI_MAX_CALLS = parseInt(process.env["SGAI_MAX_CALLS_PER_RUN"] ?? "30", 10);
+const SGAI_MIN_CONTENT = parseInt(process.env["SGAI_MIN_CONTENT_LEN"] ?? "400", 10);
+const RESOLVE_CONCURRENCY = 4;
+const ARTICLE_FETCH_CONCURRENCY = 2;
+const SGAI_SEARCH_FALLBACK = process.env["SGAI_SEARCH_FALLBACK"] !== "false";
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -45,9 +64,39 @@ interface ArticleData {
   content: string;
   publishedAt?: Date;
   dateConfidence: DateConfidence;
-  publisher?: string;    // publisher name (from RSS <source>)
-  publisherUrl?: string; // publisher domain URL
-  isRssOnly?: boolean;   // true = RSS metadata only, no full crawl needed
+  publisher?: string;
+  publisherUrl?: string;
+  isRssOnly?: boolean;
+}
+
+class SgaiBudget {
+  private _used = 0;
+  constructor(readonly max: number) {}
+  get used(): number {
+    return this._used;
+  }
+  get remaining(): number {
+    return Math.max(0, this.max - this._used);
+  }
+  recordCall(): void {
+    this._used++;
+  }
+  canUse(): boolean {
+    return this._used < this.max;
+  }
+}
+
+async function probeScrapegraphSidecar(): Promise<boolean> {
+  const base = (process.env["SCRAPEGRAPH_URL"] ?? "http://127.0.0.1:8811").replace(/\/$/, "");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(`${base}/health`, { signal: ctrl.signal });
+    clearTimeout(t);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Concurrency ───────────────────────────────────────────
@@ -78,6 +127,40 @@ function slugify(text: string): string {
     .slice(0, 80);
 }
 
+function normalizeDedupeKey(url: string): string {
+  try {
+    const u = new URL(url);
+    for (const p of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"]) {
+      u.searchParams.delete(p);
+    }
+    u.hash = "";
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+    let path = u.pathname.replace(/\/$/, "") || "/";
+    return `${host}${path}${u.search}`;
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+function stubScore(s: DiscoveryStub): number {
+  let score = 0;
+  if (s.dateConfidence === "EXTRACTED") score += 10;
+  if (s.snippet && s.snippet.length > 120) score += 3;
+  if (s.engine === "google_news") score += 2;
+  if (s.engine === "bing_news") score += 1;
+  return score;
+}
+
+function dedupeStubs(stubs: DiscoveryStub[]): DiscoveryStub[] {
+  const map = new Map<string, DiscoveryStub>();
+  for (const s of stubs) {
+    const key = normalizeDedupeKey(s.url);
+    const prev = map.get(key);
+    if (!prev || stubScore(s) > stubScore(prev)) map.set(key, s);
+  }
+  return [...map.values()];
+}
+
 function isArticleTooOld(publishedAt: Date | undefined, confidence: DateConfidence): boolean {
   if (HISTORICAL_MODE) return false;
   if (!publishedAt || confidence === "UNKNOWN") return false;
@@ -85,38 +168,18 @@ function isArticleTooOld(publishedAt: Date | undefined, confidence: DateConfiden
   return ageDays > MAX_ARTICLE_AGE_DAYS;
 }
 
-/** Build Google News RSS URL for a topic — combines name + top keywords */
-function buildGoogleNewsUrl(topic: string, keywords: string[], description?: string | null): string {
-  // Start with topic, add up to 3 unique keywords that aren't already in the topic
-  const topicLower = topic.toLowerCase();
-  const extra = keywords
-    .filter((k) => !topicLower.includes(k.toLowerCase()))
-    .slice(0, 3);
-
-  const queryParts = [topic, ...extra];
-  // If description adds meaningful context, use the first 3 words
-  if (description) {
-    const descWords = description.split(/\s+/).slice(0, 3).join(" ");
-    queryParts.push(descWords);
-  }
-
-  const query = encodeURIComponent(queryParts.join(" "));
-  return `https://news.google.com/rss/search?q=${query}&hl=en&gl=US&ceid=US:en`;
-}
-
-/** Get or create a Google News Source record for a topic, returns source id */
-async function getOrCreateGoogleNewsSource(
+async function getOrCreatePipelineSource(
   db: ReturnType<typeof getScoutDb>,
   topic: string,
+  primarySearchQuery: string,
   rssUrl: string,
 ): Promise<string> {
-  const webUrl = `https://news.google.com/search?q=${encodeURIComponent(topic)}&hl=en&gl=US&ceid=US:en`;
-  const name = `Google News: ${topic}`;
+  const webUrl = buildGoogleNewsWebUrl(primarySearchQuery);
+  const name = `News pipeline: ${topic}`;
 
   const existing = await db.source.findFirst({ where: { rssUrl } });
   if (existing) return existing.id;
 
-  // Also check by name in case rssUrl changed slightly
   const byName = await db.source.findFirst({ where: { name } });
   if (byName) {
     await db.source.update({ where: { id: byName.id }, data: { rssUrl } });
@@ -124,7 +187,7 @@ async function getOrCreateGoogleNewsSource(
   }
 
   const created = await db.source.create({
-    data: { name, url: webUrl, rssUrl, isActive: true, trustScore: 0.7 },
+    data: { name, url: webUrl, rssUrl, isActive: true, trustScore: 0.75 },
   });
   return created.id;
 }
@@ -134,7 +197,6 @@ async function getOrCreateGoogleNewsSource(
 function extractDateFromHtml(html: string, url: string): { publishedAt?: Date; dateConfidence: DateConfidence } {
   const $ = load(html);
 
-  // 1. OG / meta tags
   for (const attr of ["article:published_time", "article:modified_time", "date", "pubdate", "DC.date"]) {
     const val = $(`meta[property="${attr}"], meta[name="${attr}"]`).attr("content");
     if (val) {
@@ -143,7 +205,6 @@ function extractDateFromHtml(html: string, url: string): { publishedAt?: Date; d
     }
   }
 
-  // 2. JSON-LD
   let jsonLdDate: Date | undefined;
   $('script[type="application/ld+json"]').each((_, el) => {
     if (jsonLdDate) return;
@@ -154,11 +215,12 @@ function extractDateFromHtml(html: string, url: string): { publishedAt?: Date; d
         const d = new Date(ds);
         if (!isNaN(d.getTime())) jsonLdDate = d;
       }
-    } catch { /* skip malformed */ }
+    } catch {
+      /* skip */
+    }
   });
   if (jsonLdDate) return { publishedAt: jsonLdDate, dateConfidence: "EXTRACTED" };
 
-  // 3. <time datetime> elements
   const timeEl = $("time[datetime]").first();
   if (timeEl.length) {
     const val = timeEl.attr("datetime");
@@ -168,7 +230,6 @@ function extractDateFromHtml(html: string, url: string): { publishedAt?: Date; d
     }
   }
 
-  // 4. URL path date pattern /2025/05/03/
   const urlMatch = url.match(/\/(\d{4})\/(\d{2})\/(\d{2})\//);
   if (urlMatch) {
     const d = new Date(`${urlMatch[1]}-${urlMatch[2]}-${urlMatch[3]}`);
@@ -177,8 +238,6 @@ function extractDateFromHtml(html: string, url: string): { publishedAt?: Date; d
 
   return { dateConfidence: "UNKNOWN" };
 }
-
-// ─── Article text extraction ───────────────────────────────
 
 function extractArticleText(html: string): string {
   const $ = load(html);
@@ -201,14 +260,14 @@ function extractArticleText(html: string): string {
     const el = $(sel).first();
     if (el.length) {
       const text = el.text().replace(/\s+/g, " ").trim();
-      if (text.length > 300) return text.slice(0, 6000);
+      if (text.length > 300) return text.slice(0, 8000);
     }
   }
 
-  return $("body").text().replace(/\s+/g, " ").trim().slice(0, 6000);
+  return $("body").text().replace(/\s+/g, " ").trim().slice(0, 8000);
 }
 
-// ─── Save article to DB + disk ─────────────────────────────
+// ─── Save article ──────────────────────────────────────────
 
 async function saveRawArticle(
   db: ReturnType<typeof getScoutDb>,
@@ -239,9 +298,7 @@ async function saveRawArticle(
 
   await writeFile(join(ARTICLES_DIR, filename), frontmatter + data.rawContent, "utf-8");
 
-  const ageHours = data.publishedAt
-    ? (Date.now() - data.publishedAt.getTime()) / 3_600_000
-    : null;
+  const ageHours = data.publishedAt ? (Date.now() - data.publishedAt.getTime()) / 3_600_000 : null;
 
   await db.article.create({
     data: {
@@ -262,8 +319,9 @@ async function saveRawArticle(
 // ─── Fetch helpers ─────────────────────────────────────────
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
 };
 
@@ -277,13 +335,12 @@ async function fetchWithTimeout(url: string, ms = CRAWL_TIMEOUT_MS): Promise<Res
   }
 }
 
-/** Crawl a URL, follow redirects, return article data using the canonical final URL */
 async function crawlArticle(url: string): Promise<ArticleData | null> {
   try {
     const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
 
-    const canonicalUrl = res.url || url; // final URL after redirect chain
+    const canonicalUrl = res.url || url;
     const html = await res.text();
     const $ = load(html);
 
@@ -292,7 +349,10 @@ async function crawlArticle(url: string): Promise<ArticleData | null> {
       $("h1").first().text() ||
       $("title").text() ||
       "Untitled"
-    ).trim().replace(/\s+/g, " ").slice(0, 200);
+    )
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 200);
 
     const content = extractArticleText(html);
     if (content.length < 150) return null;
@@ -306,10 +366,51 @@ async function crawlArticle(url: string): Promise<ArticleData | null> {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-/** Parse an RSS/Atom feed, return article stubs with metadata */
+function mergeSmartIntoArticle(stub: DiscoveryStub, smart: SmartScrapeResult, url: string): ArticleData {
+  const title = (typeof smart.title === "string" && smart.title.trim()) ? smart.title.trim().slice(0, 200) : stub.title;
+  let content = typeof smart.content === "string" ? smart.content.trim() : "";
+  if (smart.summary && typeof smart.summary === "string" && content.length < 250) {
+    content = `${content}\n\nSummary: ${smart.summary}`.trim();
+  }
+
+  let publishedAt = stub.publishedAt;
+  let dateConfidence: DateConfidence = stub.dateConfidence;
+  const paRaw = smart.published_at ?? smart.publishedAt;
+  if (typeof paRaw === "string" && paRaw.trim()) {
+    const d = new Date(paRaw.trim());
+    if (!isNaN(d.getTime())) {
+      publishedAt = d;
+      dateConfidence = "EXTRACTED";
+    }
+  }
+
+  return {
+    url,
+    title,
+    content,
+    publishedAt,
+    dateConfidence,
+    publisher: stub.publisher,
+  };
+}
+
+function snippetFallback(stub: DiscoveryStub): string {
+  const parts = [`Title: ${stub.title}`];
+  if (stub.publisher) parts.push(`Source: ${stub.publisher}`);
+  if (stub.snippet) parts.push(stub.snippet);
+  return parts.join("\n\n");
+}
+
 async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<ArticleData[]> {
   try {
     const res = await fetchWithTimeout(rssUrl, 10_000);
@@ -324,7 +425,6 @@ async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<Arti
     const articles: ArticleData[] = [];
 
     for (const item of itemArr) {
-      // URL: prefer guid for Google News (stable), else link
       const rawUrl: string = item.link?.href ?? item.link ?? "";
       const guid: string = typeof item.guid === "object" ? item.guid._ ?? "" : item.guid ?? "";
       const url = isGoogleNews && guid ? `https://news.google.com/rss/articles/${guid}` : rawUrl.trim();
@@ -338,25 +438,22 @@ async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<Arti
       let dateConfidence: DateConfidence = "UNKNOWN";
       if (pubStr) {
         const d = new Date(pubStr);
-        if (!isNaN(d.getTime())) { publishedAt = d; dateConfidence = "EXTRACTED"; }
+        if (!isNaN(d.getTime())) {
+          publishedAt = d;
+          dateConfidence = "EXTRACTED";
+        }
       }
 
-      if (isArticleTooOld(publishedAt, dateConfidence)) {
-        const ageDays = publishedAt ? ((Date.now() - publishedAt.getTime()) / 86_400_000).toFixed(1) : "?";
-        console.log(`[scout]   skip old (${ageDays}d): ${stripHtml(title).slice(0, 60)}`);
-        continue;
-      }
+      if (isArticleTooOld(publishedAt, dateConfidence)) continue;
 
-      // Publisher metadata (especially useful for Google News)
       const sourceEl = item.source;
       const publisherUrl: string | undefined = sourceEl?.$?.url ?? sourceEl?.url;
-      const publisher: string | undefined = typeof sourceEl === "string" ? sourceEl : sourceEl?._ ?? sourceEl?.__text;
+      const publisher: string | undefined =
+        typeof sourceEl === "string" ? sourceEl : sourceEl?._ ?? sourceEl?.__text;
 
-      // Description text (Google News encodes related articles here as HTML)
       const descRaw: string = typeof item.description === "string" ? item.description : "";
       const descText = descRaw ? stripHtml(descRaw).slice(0, 500) : "";
 
-      // For Google News: build content from available metadata (crawling returns 400)
       const content = isGoogleNews
         ? [`Title: ${stripHtml(title)}`, publisher ? `Publisher: ${publisher}` : "", descText].filter(Boolean).join("\n")
         : descText;
@@ -379,7 +476,6 @@ async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<Arti
   }
 }
 
-/** Find article links from a listing page (HTML scraping fallback) */
 async function findArticleLinks(listingUrl: string): Promise<string[]> {
   try {
     const res = await fetchWithTimeout(listingUrl, 12_000);
@@ -389,10 +485,18 @@ async function findArticleLinks(listingUrl: string): Promise<string[]> {
     const links = new Set<string>();
 
     const selectors = [
-      "article a[href]", "[class*='article'] a[href]", "[class*='post'] a[href]",
-      "[class*='story'] a[href]", "h1 a[href]", "h2 a[href]", "h3 a[href]",
-      ".title a[href]", "a[href*='/news/']", "a[href*='/articles/']",
-      "a[href*='/2025/']", "a[href*='/2026/']",
+      "article a[href]",
+      "[class*='article'] a[href]",
+      "[class*='post'] a[href]",
+      "[class*='story'] a[href]",
+      "h1 a[href]",
+      "h2 a[href]",
+      "h3 a[href]",
+      ".title a[href]",
+      "a[href*='/news/']",
+      "a[href*='/articles/']",
+      "a[href*='/2025/']",
+      "a[href*='/2026/']",
     ];
 
     for (const sel of selectors) {
@@ -402,9 +506,12 @@ async function findArticleLinks(listingUrl: string): Promise<string[]> {
         const full = href.startsWith("http") ? href : new URL(href, listingUrl).toString();
         if (
           !full.match(/\.(pdf|jpg|png|gif|zip|svg)$/i) &&
-          !full.includes("/tag/") && !full.includes("/category/") && !full.includes("/author/") &&
+          !full.includes("/tag/") &&
+          !full.includes("/category/") &&
+          !full.includes("/author/") &&
           full.length > listingUrl.length
-        ) links.add(full);
+        )
+          links.add(full);
       });
     }
 
@@ -415,102 +522,219 @@ async function findArticleLinks(listingUrl: string): Promise<string[]> {
   }
 }
 
-// ─── Phase 1: Google News RSS per interest ─────────────────
+// ─── Phase 1 ───────────────────────────────────────────────
 
-async function scrapeGoogleNews(
+async function ingestArticleFromStub(
   db: ReturnType<typeof getScoutDb>,
-  interest: { id: string; topic: string; description: string | null; searchKeywords: string[] },
+  sourceId: string,
+  stub: DiscoveryStub,
+  resolvedUrl: string,
   globalSeen: Set<string>,
-): Promise<number> {
-  const rssUrl = buildGoogleNewsUrl(interest.topic, interest.searchKeywords, interest.description);
-  const sourceId = await getOrCreateGoogleNewsSource(db, interest.topic, rssUrl);
+  sgai: SgaiBudget,
+  sidecarOk: boolean,
+  smartScrapePrompt?: string,
+): Promise<boolean> {
+  if (globalSeen.has(resolvedUrl)) return false;
 
-  // Ensure this source is linked to the interest (fixes Sources (0) display for old interests)
-  await db.interestSource.upsert({
-    where: { interestId_sourceId: { interestId: interest.id, sourceId } },
-    update: {},
-    create: { interestId: interest.id, sourceId },
-  }).catch(() => {});
+  const existing = await db.article.findUnique({ where: { url: resolvedUrl }, select: { id: true } });
+  if (existing) {
+    globalSeen.add(resolvedUrl);
+    return false;
+  }
 
-  const stubs = await parseRssFeed(rssUrl, MAX_PER_TOPIC);
-  if (stubs.length === 0) return 0;
+  if (isArticleTooOld(stub.publishedAt, stub.dateConfidence)) return false;
 
-  console.log(`[scout] [${interest.topic}] Google News: ${stubs.length} candidates`);
+  let article = await crawlArticle(resolvedUrl);
+  const urlForSgai = article?.url ?? resolvedUrl;
 
-  let saved = 0;
-  for (const stub of stubs) {
-    if (globalSeen.has(stub.url)) continue;
-    globalSeen.add(stub.url);
-
-    // Google News redirect URLs return HTTP 400 — save directly from RSS metadata
-    // (title + publisher + description snippet gives analyst enough to work with)
-    if (stub.isRssOnly) {
-      const content = stub.content || `Article: ${stub.title}${stub.publisher ? `\nSource: ${stub.publisher}` : ""}`;
-      const ok = await saveRawArticle(db, {
-        sourceId,
-        url: stub.url,
-        title: stub.title,
-        rawContent: content,
-        publishedAt: stub.publishedAt,
-        dateConfidence: stub.dateConfidence,
-      });
-      if (ok) {
-        saved++;
-        const age = stub.publishedAt
-          ? `${((Date.now() - stub.publishedAt.getTime()) / 3_600_000).toFixed(0)}h`
-          : "?";
-        console.log(`[scout]   ✓ [${age}] ${stub.title.slice(0, 70)} — ${stub.publisher ?? "Google News"}`);
+  if ((!article || article.content.length < SGAI_MIN_CONTENT) && sidecarOk && sgai.canUse()) {
+    sgai.recordCall();
+    try {
+      const smart = await smartScrape(urlForSgai, { prompt: smartScrapePrompt });
+      const merged = mergeSmartIntoArticle(stub, smart, urlForSgai);
+      if (merged.content.length >= 80) {
+        article = merged;
       }
-      continue;
+    } catch (err) {
+      console.warn(`[scout]   SGAI scrape failed: ${(err as Error).message}`);
     }
+  }
 
-    // Regular articles: crawl for full content
-    const article = await crawlArticle(stub.url);
-    if (!article) continue;
-
-    if (globalSeen.has(article.url) && article.url !== stub.url) continue;
-    globalSeen.add(article.url);
-
-    if (isArticleTooOld(article.publishedAt, article.dateConfidence)) {
-      const ageDays = article.publishedAt
-        ? ((Date.now() - article.publishedAt.getTime()) / 86_400_000).toFixed(1) : "?";
-      console.log(`[scout]   skip old (${ageDays}d): ${article.title.slice(0, 60)}`);
-      continue;
-    }
-
-    if (!article.publishedAt && stub.publishedAt) {
-      article.publishedAt = stub.publishedAt;
-      article.dateConfidence = stub.dateConfidence;
-    }
+  if (!article || article.content.length < 80) {
+    const fb = snippetFallback(stub);
+    if (fb.length < 40) return false;
 
     const ok = await saveRawArticle(db, {
       sourceId,
-      url: article.url,
-      title: article.title || stub.title,
-      rawContent: article.content,
-      publishedAt: article.publishedAt,
-      dateConfidence: article.dateConfidence,
+      url: resolvedUrl,
+      title: stub.title,
+      rawContent: fb,
+      publishedAt: stub.publishedAt,
+      dateConfidence: stub.dateConfidence,
     });
-
     if (ok) {
-      saved++;
-      const age = article.publishedAt
-        ? `${((Date.now() - article.publishedAt.getTime()) / 3_600_000).toFixed(0)}h` : "?";
-      console.log(`[scout]   ✓ [${age}] ${article.title.slice(0, 70)}`);
+      globalSeen.add(resolvedUrl);
+      console.log(`[scout]   ✓ [snippet-only] ${stub.title.slice(0, 70)} (${stub.engine})`);
+    }
+    return ok;
+  }
+
+  const canonical = article.url;
+  if (globalSeen.has(canonical)) return false;
+
+  const dupCanon = await db.article.findUnique({ where: { url: canonical }, select: { id: true } });
+  if (dupCanon) {
+    globalSeen.add(canonical);
+    return false;
+  }
+
+  globalSeen.add(canonical);
+
+  let pub = article.publishedAt ?? stub.publishedAt;
+  let conf = article.dateConfidence;
+  if (!pub && stub.publishedAt) {
+    pub = stub.publishedAt;
+    conf = stub.dateConfidence;
+  }
+
+  if (isArticleTooOld(pub, conf)) return false;
+
+  const raw =
+    article.publisher || stub.publisher
+      ? `${article.content}\n\n---\nSource: ${stub.publisher ?? article.publisher}`
+      : article.content;
+
+  const ok = await saveRawArticle(db, {
+    sourceId,
+    url: article.url,
+    title: article.title || stub.title,
+    rawContent: raw,
+    publishedAt: pub,
+    dateConfidence: conf,
+  });
+
+  if (ok) {
+    const age = pub ? `${((Date.now() - pub.getTime()) / 3_600_000).toFixed(0)}h` : "?";
+    console.log(`[scout]   ✓ [${age}] ${(article.title || stub.title).slice(0, 70)} (${stub.engine})`);
+  }
+
+  return ok;
+}
+
+async function scrapeTopicPipeline(
+  db: ReturnType<typeof getScoutDb>,
+  interest: InterestFocus & { id: string },
+  globalSeen: Set<string>,
+  sgai: SgaiBudget,
+  sidecarOk: boolean,
+): Promise<number> {
+  const primaryQuery = buildInterestSearchQuery(interest);
+  const phase1SmartPrompt = buildSmartScrapePromptForInterests([interest]);
+  const rssUrl = buildGoogleNewsRssUrl(primaryQuery);
+  const sourceId = await getOrCreatePipelineSource(db, interest.topic, primaryQuery, rssUrl);
+
+  await db.interestSource
+    .upsert({
+      where: { interestId_sourceId: { interestId: interest.id, sourceId } },
+      update: {},
+      create: { interestId: interest.id, sourceId },
+    })
+    .catch(() => {});
+
+  const queries = await expandQueries(interest);
+  console.log(`[scout] [${interest.topic}] queries: ${queries.join(" | ")}`);
+
+  const limitPerEngine = Math.max(3, Math.ceil(MAX_PER_TOPIC / queries.length) + 2);
+  let stubs: DiscoveryStub[] = [];
+
+  for (const q of queries) {
+    const batch = await discoverForQuery(q, limitPerEngine);
+    stubs.push(...batch);
+  }
+
+  await pLimit(stubs, RESOLVE_CONCURRENCY, async (stub) => {
+    stub.url = await resolvePublisherUrl(stub.url);
+  });
+
+  stubs = dedupeStubs(stubs);
+
+  if (stubs.length < 6 && sidecarOk && SGAI_SEARCH_FALLBACK && sgai.canUse()) {
+    sgai.recordCall();
+    try {
+      const { topic: sgTopic, prompt: sgPrompt } = buildSearchGraphTopicAndPrompt(interest);
+      const sg = await searchScrapeViaSidecar(sgTopic, sgPrompt, Math.min(6, MAX_PER_TOPIC));
+      const urls = sg.considered_urls ?? [];
+      for (const u of urls) {
+        if (typeof u !== "string" || !/^https?:\/\//i.test(u)) continue;
+        stubs.push({
+          url: u,
+          title: interest.topic,
+          dateConfidence: "UNKNOWN",
+          engine: "hackernews",
+        });
+      }
+      stubs = dedupeStubs(stubs);
+      console.log(`[scout] [${interest.topic}] SearchGraph fallback: +${urls.length} URLs considered`);
+    } catch (err) {
+      console.warn(`[scout] SearchGraph fallback failed: ${(err as Error).message}`);
     }
   }
+
+  stubs = stubs.filter((s) => !isArticleTooOld(s.publishedAt, s.dateConfidence));
+
+  stubs.sort((a, b) => {
+    const ta = a.publishedAt?.getTime() ?? 0;
+    const tb = b.publishedAt?.getTime() ?? 0;
+    return tb - ta;
+  });
+
+  stubs = stubs.slice(0, MAX_PER_TOPIC);
+
+  console.log(`[scout] [${interest.topic}] ${stubs.length} candidates after dedupe/sort`);
+
+  let saved = 0;
+  await pLimit(stubs, ARTICLE_FETCH_CONCURRENCY, async (stub) => {
+    const url = stub.url;
+    try {
+      const ok = await ingestArticleFromStub(
+        db,
+        sourceId,
+        stub,
+        url,
+        globalSeen,
+        sgai,
+        sidecarOk,
+        phase1SmartPrompt,
+      );
+      if (ok) saved++;
+    } catch (err) {
+      console.error(`[scout]   ingest error: ${(err as Error).message}`);
+    }
+  });
 
   return saved;
 }
 
-// ─── Phase 2: Manual source scraping ──────────────────────
+// ─── Phase 2 ───────────────────────────────────────────────
 
 async function scrapeManualSource(
   db: ReturnType<typeof getScoutDb>,
   source: { id: string; name: string; url: string; rssUrl: string | null },
   globalSeen: Set<string>,
+  sgai: SgaiBudget,
+  sidecarOk: boolean,
+  interestFocuses?: InterestFocus[],
 ): Promise<number> {
-  console.log(`[scout] [manual] ${source.name}`);
+  const focusHint =
+    interestFocuses?.length ?
+      ` (${interestFocuses.map((f) => f.topic).join(", ")})`
+    : "";
+  console.log(`[scout] [manual] ${source.name}${focusHint}`);
+
+  const smartPrompt =
+    interestFocuses && interestFocuses.length > 0 ?
+      buildSmartScrapePromptForInterests(dedupeInterestFocuses(interestFocuses))
+    : undefined;
 
   const stubs: ArticleData[] = [];
 
@@ -532,26 +756,53 @@ async function scrapeManualSource(
 
   let saved = 0;
   for (const stub of stubs.slice(0, MAX_PER_SOURCE)) {
-    if (globalSeen.has(stub.url)) continue;
+    let targetUrl = stub.url;
+    if (stub.isRssOnly && stub.url.includes("news.google.com")) {
+      targetUrl = await resolvePublisherUrl(stub.url);
+    }
 
-    const existing = await db.article.findUnique({ where: { url: stub.url }, select: { id: true } });
-    if (existing) { globalSeen.add(stub.url); continue; }
+    if (globalSeen.has(targetUrl)) continue;
+
+    const existing = await db.article.findUnique({ where: { url: targetUrl }, select: { id: true } });
+    if (existing) {
+      globalSeen.add(targetUrl);
+      continue;
+    }
 
     if (isArticleTooOld(stub.publishedAt, stub.dateConfidence)) continue;
 
-    // Try full crawl first; if blocked (paywall/bot detection), fall back to RSS metadata
-    const crawled = await crawlArticle(stub.url);
+    let crawled = await crawlArticle(targetUrl);
 
-    // Use crawled content if available, otherwise fall back to RSS snippet
-    const finalUrl = crawled?.url ?? stub.url;
+    if ((!crawled || crawled.content.length < SGAI_MIN_CONTENT) && sidecarOk && sgai.canUse()) {
+      sgai.recordCall();
+      try {
+        const smart = await smartScrape(targetUrl, { prompt: smartPrompt });
+        const fakeDiscovery: DiscoveryStub = {
+          url: targetUrl,
+          title: stub.title || "Untitled",
+          publishedAt: stub.publishedAt,
+          dateConfidence: stub.dateConfidence,
+          publisher: stub.publisher,
+          snippet: stub.content,
+          engine: "bing_news",
+        };
+        const merged = mergeSmartIntoArticle(fakeDiscovery, smart, targetUrl);
+        if (merged.content.length >= 80) crawled = merged;
+      } catch {
+        /* fall through */
+      }
+    }
+
+    const finalUrl = crawled?.url ?? targetUrl;
     const finalTitle = crawled?.title || stub.title;
-    const finalContent = (crawled?.content && crawled.content.length >= 150)
-      ? crawled.content
-      : (stub.content && stub.content.length >= 30)
-        ? `${stub.title}\n\n${stub.content}`  // RSS metadata fallback
-        : null;
+    const finalContent =
+      crawled && crawled.content.length >= 80
+        ? crawled.content
+        : stub.content && stub.content.length >= 30
+          ? `${stub.title}\n\n${stub.content}`
+          : null;
 
-    if (!finalContent) continue; // skip if truly no content
+    if (!finalContent) continue;
 
     if (globalSeen.has(finalUrl)) continue;
     globalSeen.add(finalUrl);
@@ -559,11 +810,7 @@ async function scrapeManualSource(
     const finalDate = crawled?.publishedAt ?? stub.publishedAt;
     const finalConf = crawled?.dateConfidence ?? stub.dateConfidence;
 
-    if (isArticleTooOld(finalDate, finalConf)) {
-      const ageDays = finalDate ? ((Date.now() - finalDate.getTime()) / 86_400_000).toFixed(1) : "?";
-      console.log(`[scout]   skip old (${ageDays}d): ${finalTitle.slice(0, 60)}`);
-      continue;
-    }
+    if (isArticleTooOld(finalDate, finalConf)) continue;
 
     const ok = await saveRawArticle(db, {
       sourceId: source.id,
@@ -577,7 +824,8 @@ async function scrapeManualSource(
     if (ok) {
       saved++;
       const age = finalDate ? `${((Date.now() - finalDate.getTime()) / 3_600_000).toFixed(0)}h` : "?";
-      const mode = (crawled && crawled.content.length >= 150) ? "" : " [rss]";
+      const mode =
+        crawled && crawled.content.length >= SGAI_MIN_CONTENT ? "" : crawled?.content ? " [thin]" : " [rss]";
       console.log(`[scout]   ✓ [${age}]${mode} ${finalTitle.slice(0, 70)}`);
     }
   }
@@ -589,12 +837,24 @@ async function scrapeManualSource(
 
 async function main(): Promise<void> {
   const db = getScoutDb();
-  const globalSeen = new Set<string>(); // cross-phase URL dedup
+  const globalSeen = new Set<string>();
   const interestId = parseInterestIdArg();
+  const sgaiGlobal = new SgaiBudget(SGAI_MAX_CALLS);
+
+  const sgSidecarOk = await probeScrapegraphSidecar();
+  const sgUrl = (process.env["SCRAPEGRAPH_URL"] ?? "http://127.0.0.1:8811").replace(/\/$/, "");
 
   console.log(`[scout] ═══════════════════════════════════════`);
-  console.log(`[scout] Scout v2 — topic-driven parallel scraper`);
-  console.log(`[scout] Mode: ${HISTORICAL_MODE ? "HISTORICAL" : `RECENT ≤${MAX_ARTICLE_AGE_DAYS}d`}  concurrency: ${PHASE1_CONCURRENCY}+${PHASE2_CONCURRENCY}`);
+  console.log(`[scout] Scout v3 — ScrapeGraphAI multi-source pipeline`);
+  console.log(
+    `[scout] Mode: ${HISTORICAL_MODE ? "HISTORICAL" : `RECENT ≤${MAX_ARTICLE_AGE_DAYS}d`}  SGAI budget: ${SGAI_MAX_CALLS}/run`,
+  );
+  console.log(
+    `[scout] Sidecar ${sgUrl}: ${sgSidecarOk ? "healthy" : "unreachable — LLM scrape disabled until scrapegraph is up (Cheerio + snippets only)"}`,
+  );
+  console.log(
+    `[scout] OpenRouter models — query-expand: ${getQueryExpandModel()} | SGAI (.env for compose): ${getSgaiModelHint()}`,
+  );
   console.log(`[scout] ═══════════════════════════════════════\n`);
 
   const interests = await db.interest.findMany({
@@ -605,13 +865,12 @@ async function main(): Promise<void> {
 
   console.log(`[scout] ${interests.length} active interests\n`);
 
-  // ── Phase 1: Google News RSS per topic (parallel) ────────
-  console.log(`[scout] ── Phase 1: Google News RSS (${PHASE1_CONCURRENCY} concurrent) ──\n`);
+  console.log(`[scout] ── Phase 1: topic pipeline (${PHASE1_CONCURRENCY} concurrent) ──\n`);
   let phase1Total = 0;
 
   await pLimit(interests, PHASE1_CONCURRENCY, async (interest) => {
     try {
-      const n = await scrapeGoogleNews(db, interest, globalSeen);
+      const n = await scrapeTopicPipeline(db, interest, globalSeen, sgaiGlobal, sgSidecarOk);
       phase1Total += n;
       if (n > 0) console.log(`[scout] [${interest.topic}] → ${n} articles saved\n`);
     } catch (err) {
@@ -619,35 +878,50 @@ async function main(): Promise<void> {
     }
   });
 
-  console.log(`\n[scout] Phase 1 done: ${phase1Total} articles from Google News\n`);
+  console.log(`\n[scout] Phase 1 done: ${phase1Total} articles (SGAI calls used: ${sgaiGlobal.used})\n`);
 
-  // ── Phase 2: Manual sources (parallel, skip Google News) ──
   const junctions = await db.interestSource.findMany({
     where: { interest: { isActive: true, ...(interestId ? { id: interestId } : {}) } },
     include: {
+      interest: { select: { topic: true, description: true, searchKeywords: true } },
       source: { select: { id: true, name: true, url: true, rssUrl: true, isActive: true } },
     },
   });
 
-  // Deduplicate by sourceId, skip Google News (already covered in Phase 1)
-  const seenSourceIds = new Set<string>();
-  const manualSources = junctions
-    .map((j) => j.source)
-    .filter((s): s is NonNullable<typeof s> => {
-      if (!s || !s.isActive) return false;
-      if (seenSourceIds.has(s.id)) return false;
-      if (s.name.startsWith("Google News:")) return false; // covered in Phase 1
-      seenSourceIds.add(s.id);
-      return true;
-    });
+  const manualBySource = new Map<
+    string,
+    {
+      source: { id: string; name: string; url: string; rssUrl: string | null };
+      focuses: InterestFocus[];
+    }
+  >();
 
-  if (manualSources.length > 0) {
-    console.log(`[scout] ── Phase 2: ${manualSources.length} manual sources (${PHASE2_CONCURRENCY} concurrent) ──\n`);
+  for (const j of junctions) {
+    const s = j.source;
+    if (!s?.isActive) continue;
+    if (s.name.startsWith("News pipeline:") || s.name.startsWith("Google News:")) continue;
+
+    let row = manualBySource.get(s.id);
+    if (!row) {
+      row = { source: s, focuses: [] };
+      manualBySource.set(s.id, row);
+    }
+    row.focuses.push({
+      topic: j.interest.topic,
+      description: j.interest.description,
+      searchKeywords: j.interest.searchKeywords,
+    });
+  }
+
+  const manualRuns = [...manualBySource.values()];
+
+  if (manualRuns.length > 0) {
+    console.log(`[scout] ── Phase 2: ${manualRuns.length} manual sources (${PHASE2_CONCURRENCY} concurrent) ──\n`);
     let phase2Total = 0;
 
-    await pLimit(manualSources, PHASE2_CONCURRENCY, async (source) => {
+    await pLimit(manualRuns, PHASE2_CONCURRENCY, async ({ source, focuses }) => {
       try {
-        const n = await scrapeManualSource(db, source, globalSeen);
+        const n = await scrapeManualSource(db, source, globalSeen, sgaiGlobal, sgSidecarOk, focuses);
         phase2Total += n;
         if (n > 0) console.log(`[scout] [manual:${source.name}] → ${n} articles saved\n`);
       } catch (err) {
@@ -655,16 +929,20 @@ async function main(): Promise<void> {
       }
     });
 
-    console.log(`\n[scout] Phase 2 done: ${phase2Total} articles from manual sources\n`);
+    console.log(`\n[scout] Phase 2 done: ${phase2Total} articles\n`);
   } else {
     console.log(`[scout] Phase 2: no manual sources to scrape\n`);
   }
 
-  await db.agentConfig.upsert({
-    where: { agentName: "scout" },
-    update: { lastRunAt: new Date(), lastError: null },
-    create: { agentName: "scout", lastRunAt: new Date() },
-  }).catch(() => {});
+  console.log(`[scout] Total SGAI sidecar calls: ${sgaiGlobal.used} / ${SGAI_MAX_CALLS}`);
+
+  await db.agentConfig
+    .upsert({
+      where: { agentName: "scout" },
+      update: { lastRunAt: new Date(), lastError: null },
+      create: { agentName: "scout", lastRunAt: new Date() },
+    })
+    .catch(() => {});
 
   console.log(`[scout] ═══════════════════════════════════════`);
   console.log(`[scout] Complete`);

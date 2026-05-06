@@ -21,6 +21,10 @@ RUN apt-get update && \
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
+# ScrapeGraph sidecar (compose publishes 127.0.0.1:8811 on host). Docker Desktop:
+SCRAPEGRAPH_URL=http://host.docker.internal:8811
+# Linux: add host-gateway or use SCRAPEGRAPH_URL=http://scrapegraph:8811 on the compose network.
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

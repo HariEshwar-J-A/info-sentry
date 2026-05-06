@@ -44,20 +44,7 @@ export const DEEPSEEK_V3: ModelConfig = {
   security: "medium",
 };
 
-// Tier 1: Premium ($0.50/1M +) - DeepSeek for analysis
-const TIER_1_ANALYST: ModelConfig = {
-  id: "deepseek/deepseek-r1",
-  name: "DeepSeek R1",
-  provider: "openrouter",
-  tier: 1,
-  promptCostPer1M: 0.55,
-  completionCostPer1M: 2.19,
-  contextWindow: 64000,
-  intelligence: "high",
-  security: "high",
-};
-
-// Tier 2: Balanced ($0.10-0.50/1M) - Google Gemini
+// Tier 2: Balanced ($0.10-0.50/1M) — Gemini Flash default for analyst / scout pipelines
 export const TIER_2_BALANCED: ModelConfig = {
   id: "google/gemini-2.0-flash-001",
   name: "Gemini 2.0 Flash",
@@ -98,15 +85,15 @@ const TIER_4_FREE: ModelConfig = {
 
 // Model selection by budget tier
 export const MODELS_BY_TIER = {
-  1: { ANALYST: TIER_1_ANALYST, PREDICTION: KIMI_K2, SUMMARIZER: TIER_2_BALANCED },
+  1: { ANALYST: TIER_2_BALANCED, PREDICTION: KIMI_K2, SUMMARIZER: TIER_2_BALANCED },
   2: { ANALYST: TIER_2_BALANCED, PREDICTION: DEEPSEEK_V3, SUMMARIZER: TIER_2_BALANCED },
   3: { ANALYST: TIER_3_BUDGET, PREDICTION: TIER_3_BUDGET, SUMMARIZER: TIER_3_BUDGET },
   4: { ANALYST: TIER_4_FREE, PREDICTION: TIER_4_FREE, SUMMARIZER: TIER_4_FREE },
 } as const;
 
-// Default exports — kimi-k2.6 is primary for predictions/reasoning
+// Default exports — kimi-k2.6 is primary for predictions/reasoning; analyst uses cheap high-IQ Flash
 export const MODELS = {
-  ANALYST: TIER_1_ANALYST,
+  ANALYST: TIER_2_BALANCED,
   PREDICTION: KIMI_K2,
   // SUMMARIZER always starts from Gemini Flash — never a reasoning model
   SUMMARIZER: TIER_2_BALANCED,

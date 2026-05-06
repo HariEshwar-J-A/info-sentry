@@ -1,6 +1,9 @@
 """
 ScrapeGraphAI sidecar — SmartScraperGraph + SearchGraph behind FastAPI.
-Uses OpenRouter (OpenAI-compatible) as the LLM backend via LiteLLM inside scrapegraphai.
+
+OpenRouter is wired via LangChain ChatOpenAI + custom base_url (OpenAI-compatible API).
+We cannot pass \"google/...\" as the llm \"model\" string: AbstractGraph splits on \"/\"
+and expects a supported LangChain provider prefix (\"google\" alone is invalid).
 """
 from __future__ import annotations
 
@@ -31,24 +34,34 @@ content (string), summary (string)."""
 
 
 def _base_llm() -> dict[str, Any]:
+    """Return llm config using model_instance so OpenRouter slug can contain '/'."""
+    from langchain_openai import ChatOpenAI
+
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not set")
 
-    model = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001").strip()
-    # LiteLLM: route OpenRouter models explicitly
-    if model.startswith("openrouter/"):
-        litellm_model = model
-    elif "/" in model:
-        litellm_model = f"openrouter/{model}"
-    else:
-        litellm_model = model
+    model_id = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001").strip()
+    if model_id.startswith("openrouter/"):
+        model_id = model_id[len("openrouter/") :]
+
+    base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+    temperature = float(os.environ.get("SGAI_TEMPERATURE", "0.2"))
+    timeout_s = float(os.environ.get("SGAI_CHAT_TIMEOUT_S", "180"))
+
+    llm = ChatOpenAI(
+        model=model_id,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature,
+        timeout=timeout_s,
+    )
+
+    model_tokens = int(os.environ.get("SGAI_MODEL_TOKENS", "131072"))
 
     return {
-        "api_key": api_key,
-        "model": litellm_model,
-        "base_url": os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-        "temperature": float(os.environ.get("SGAI_TEMPERATURE", "0.2")),
+        "model_instance": llm,
+        "model_tokens": model_tokens,
     }
 
 
@@ -94,9 +107,11 @@ def _run_search_scrape(topic: str, prompt: str, max_results: int) -> dict[str, A
 
     full_prompt = f"Topic: {topic}\n\n{prompt}"
     cfg = _graph_config(max_results=max_results)
-    graph = SearchGraph(prompt=full_prompt, config=cfg)
-    result = graph.run()
-    return result if isinstance(result, dict) else {"raw": result}
+    # Constructor is positional: SearchGraph(prompt, config[, schema])
+    graph = SearchGraph(full_prompt, cfg)
+    answer = graph.run()
+    urls = graph.get_considered_urls()
+    return {"answer": answer, "considered_urls": urls}
 
 
 def _run_follow_redirects(url: str) -> dict[str, str]:

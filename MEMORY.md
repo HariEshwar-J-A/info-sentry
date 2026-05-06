@@ -46,6 +46,17 @@ None yet recorded.
 
 ---
 
+## Scout v3 — ScrapeGraphAI multi-source pipeline (2026-05)
+
+- **`scripts/scout-run.ts`** orchestrates discovery (Google News + Bing News + Hacker News + Reddit), LLM query expansion (`scripts/lib/query-expand.ts`), Google News URL resolution, Cheerio fetch, then **`SmartScraperGraph`** via a Python sidecar when content is shorter than `SGAI_MIN_CONTENT_LEN` (default 400 chars).
+- **Sidecar**: [`services/scrapegraph/`](services/scrapegraph/) — `docker compose up -d scrapegraph` publishes **`127.0.0.1:8811`**. Uses **`OPENROUTER_API_KEY`** + **`SGAI_MODEL`** via LangChain **`ChatOpenAI`** (`model_instance`) pointing at OpenRouter’s OpenAI-compatible **`base_url`** (required because ScrapeGraph splits `provider/model` on `/` and does not support raw `google/...` strings). Default: **`google/gemini-2.0-flash-001`** (see [`scripts/lib/scout-llm-defaults.ts`](scripts/lib/scout-llm-defaults.ts)). Telemetry off: `SCRAPEGRAPHAI_TELEMETRY_ENABLED=false`.
+- **`make db-up` / `cmd_db_up`**: waits for ScrapeGraph `/health` (best-effort) so cron/Telegram/web runs see the sidecar after stack start.
+- **`SCRAPEGRAPH_URL`**: Scout on the **host** → `http://127.0.0.1:8811`. Scout in **`Dockerfile.scout`** container → default `http://host.docker.internal:8811` (Docker Desktop); on Linux Docker add `--add-host=host.docker.internal:host-gateway` or join the compose network and set `http://scrapegraph:8811`.
+- **Budget guard**: **`SGAI_MAX_CALLS_PER_RUN`** (default 30) counts every `/smart-scrape` and `/search-scrape` invocation; after the cap, scout falls back to RSS/snippet-only saves for remaining candidates.
+- **Legacy DB rows**: Sources named `Google News: …` are skipped in Phase 2 manual scraping; Phase 1 uses **`News pipeline: …`** as the synthetic source name.
+
+---
+
 ## PostgreSQL / Prisma (critical for migrations)
 
 - **`DATABASE_URL` uses `openclaw_role`**, but Docker Postgres tables from initial Prisma migrations are often **owned by `infosentry`** (`POSTGRES_USER`). Only the table owner can `ALTER TABLE`.

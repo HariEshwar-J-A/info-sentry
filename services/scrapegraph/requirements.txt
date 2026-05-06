@@ -1,5 +1,5 @@
-# ScrapeGraphAI sidecar — pinned loosely for security patches
-scrapegraphai>=2.0.0,<3
+# Runtime server first; ScrapeGraphAI (PyPI line is still 1.x as of 2026 — not 2.x yet).
 fastapi>=0.115.0,<1
 uvicorn[standard]>=0.32.0,<1
 pydantic>=2.0.0,<3
+scrapegraphai>=1.70.0,<2

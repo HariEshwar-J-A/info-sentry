@@ -110,7 +110,7 @@ async function summarizeWithFallback(
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: context },
         ],
-        { temperature: 0.3, maxTokens: 700 },
+        { temperature: 0.3, maxTokens: 700, rateLimitFallbackModels: [] },
       )
       return { response, model }
     } catch (err) {

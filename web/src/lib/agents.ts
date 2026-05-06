@@ -9,8 +9,7 @@ export const AVAILABLE_MODELS = [
   { id: 'moonshotai/kimi-k2.6',             name: 'Kimi K2.6',        tier: 'Premium', desc: 'Best chain-of-thought reasoning' },
   { id: 'deepseek/deepseek-v3.2',            name: 'DeepSeek V3.2',    tier: 'Balanced', desc: 'Smart, fast, cost-effective' },
   { id: 'deepseek/deepseek-r1',              name: 'DeepSeek R1',       tier: 'Premium', desc: 'Deep analysis with reasoning traces' },
-  { id: 'google/gemini-2.0-flash-001',       name: 'Gemini 2.0 Flash', tier: 'Balanced', desc: '1M context, fast, cheap' },
-  { id: 'google/gemini-3.1-flash-lite',      name: 'Gemini 3.1 Lite',  tier: 'Budget', desc: 'Ultra-fast, very cheap' },
+  { id: 'google/gemini-2.0-flash-001',       name: 'Gemini 2.0 Flash', tier: 'Budget', desc: 'Fast, cheap, strong default for scout/analyst' },
   { id: 'openai/gpt-4o-mini',               name: 'GPT-4o Mini',      tier: 'Budget', desc: 'Reliable budget option' },
   { id: 'meta-llama/llama-3-8b-instruct',   name: 'Llama 3 8B',       tier: 'Free', desc: 'Free tier fallback' },
 ]
@@ -26,17 +25,17 @@ export const AGENT_DEFS: Record<string, {
 }> = {
   scout: {
     label: 'Scout',
-    description: 'Scrapes news sources every 30min for fresh articles',
+    description: 'Scout v3: multi-source discovery + ScrapeGraph sidecar for LLM extraction (hourly via OpenClaw/cron)',
     icon: '🔍',
     script: 'scripts/scout-run.ts',
-    defaultModel: 'google/gemini-3.1-flash-lite',
+    defaultModel: 'google/gemini-2.0-flash-001',
   },
   analyst: {
     label: 'Analyst',
     description: 'Analyzes SCRAPED articles → creates summaries + embeddings → posts to Telegram Main-News → marks SUMMARIZED',
     icon: '🧠',
     script: 'scripts/analyst-run.ts',
-    defaultModel: 'deepseek/deepseek-v3.2',
+    defaultModel: 'google/gemini-2.0-flash-001',
   },
   prediction: {
     label: 'Predictor',

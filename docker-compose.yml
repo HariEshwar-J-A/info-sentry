@@ -74,6 +74,37 @@ services:
         reservations:
           memory: 64M
 
+  # ── ScrapeGraphAI sidecar (LLM-assisted scraping — localhost only) ──
+  scrapegraph:
+    build:
+      context: ./services/scrapegraph
+      dockerfile: Dockerfile
+    container_name: infosentry-scrapegraph
+    restart: unless-stopped
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      SGAI_MODEL: ${SGAI_MODEL:-google/gemini-2.0-flash-001}
+      SGAI_HEADLESS: ${SGAI_HEADLESS:-true}
+      SGAI_VERBOSE: ${SGAI_VERBOSE:-false}
+      SCRAPEGRAPHAI_TELEMETRY_ENABLED: "false"
+    ports:
+      - "127.0.0.1:8811:8811"
+    networks:
+      - infosentry
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8811/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 256M
+
 # ── Shared network (internal — not exposed) ─────────────────
 networks:
   infosentry:

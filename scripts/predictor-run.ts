@@ -19,16 +19,23 @@ import { parseInterestIdArg } from "./lib/args.js";
 const exec = promisify(execFile);
 const TSX = process.platform === "win32" ? "npx.cmd" : "npx";
 
+/** Kimi → DeepSeek fallback + OpenRouter 429 retries can exceed 2m; align with analyst child budget. */
+const PREDICTION_PROCESS_TIMEOUT_MS = parseInt(process.env["PREDICTION_PROCESS_TIMEOUT_MS"] ?? "420000", 10);
+
 const IGNORED_STDERR = [
   "The 'path' argument is deprecated",
   "Use --trace-deprecation",
 ];
 
-async function runScript(script: string, args: string[]): Promise<string> {
+async function runScript(
+  script: string,
+  args: string[],
+  timeoutMs: number = 120_000,
+): Promise<string> {
   const { stdout, stderr } = await exec(TSX, ["tsx", script, ...args], {
     cwd: process.cwd(),
     env: process.env,
-    timeout: 120_000,
+    timeout: timeoutMs,
   });
   const filtered = stderr
     .split("\n")
@@ -171,7 +178,11 @@ async function main(): Promise<void> {
         );
       } else {
         console.log(`[predictor] Predicting: ${article.title}`);
-        const output = await runScript("scripts/prediction-process.ts", [`--summaryId=${summary.id}`]);
+        const output = await runScript(
+          "scripts/prediction-process.ts",
+          [`--summaryId=${summary.id}`],
+          PREDICTION_PROCESS_TIMEOUT_MS,
+        );
         const result = JSON.parse(output) as {
           predictions: { predictionId: string; confidence: number; timeHorizon: string }[];
           connectionsToPast?: string;

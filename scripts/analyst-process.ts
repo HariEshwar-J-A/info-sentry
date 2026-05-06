@@ -4,15 +4,20 @@
  *
  * Usage: npx tsx scripts/analyst-process.ts --articleId=abc123
  *
- * Reads article content, calls DeepSeek V3.2, saves summary + embeds in ChromaDB.
+ * Reads article content, calls OpenRouter (Gemini primary + rate-limit fallbacks), saves summary + ChromaDB.
  * Outputs JSON: { summaryId, chromaId, keyTopics, sentimentScore, relevanceScore }
  */
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { getChromaClient, COLLECTIONS } from "./lib/chromadb.js";
-import { MODELS } from "./lib/models.js";
-import { chatCompletion } from "./lib/openrouter.js";
+import { DEEPSEEK_V3, MODELS, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
+import {
+  chatCompletion,
+  isOpenRouterKeyLimitExceeded,
+  isOpenRouterRateLimitError,
+  OPENROUTER_KEY_SETTINGS_URL,
+} from "./lib/openrouter.js";
 import { logCost, canSpend } from "./lib/budget.js";
 
 interface AnalystLLMResponse {
@@ -47,6 +52,13 @@ Guidelines:
 5. SOURCE TRUST DELTA: -0.1 to 0.1. Adjust for quality/accuracy.
 
 Respond ONLY with the JSON object. No markdown code fences. No extra text.`;
+
+function analystModelConfig(modelId: string): ModelConfig {
+  if (modelId === MODELS.ANALYST.id) return MODELS.ANALYST;
+  if (modelId === TIER_3_BUDGET.id) return TIER_3_BUDGET;
+  if (modelId === DEEPSEEK_V3.id) return DEEPSEEK_V3;
+  return MODELS.ANALYST;
+}
 
 async function main(): Promise<void> {
   const articleId = process.argv.find((a) => a.startsWith("--articleId="))?.split("=")[1];
@@ -94,19 +106,51 @@ async function main(): Promise<void> {
   const rawContent = await readFile(article.rawFilePath, "utf-8");
 
   // 4. LLM call
-  const response = await chatCompletion(
-    MODELS.ANALYST.id,
-    [
-      { role: "system", content: SYSTEM_PROMPT },
+  let response;
+  try {
+    response = await chatCompletion(
+      MODELS.ANALYST.id,
+      [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Analyze the following article:\n\nTitle: ${article.title}\nURL: ${article.url}\n\n---\n\n${rawContent.slice(0, 12000)}`,
+        },
+      ],
       {
-        role: "user",
-        content: `Analyze the following article:\n\nTitle: ${article.title}\nURL: ${article.url}\n\n---\n\n${rawContent.slice(0, 12000)}`,
+        temperature: 0.3,
+        maxTokens: 1500,
+        responseFormat: { type: "json_object" },
+        rateLimitFallbackModels: [TIER_3_BUDGET.id, DEEPSEEK_V3.id],
       },
-    ],
-    { temperature: 0.3, maxTokens: 1500, responseFormat: { type: "json_object" } },
-  );
+    );
+  } catch (err) {
+    if (isOpenRouterKeyLimitExceeded(err)) {
+      console.error(
+        `[analyst-process] OPENROUTER_KEY_LIMIT Key spending cap reached. Raise/remove limit at ${OPENROUTER_KEY_SETTINGS_URL}`,
+      );
+      await db.article.update({ where: { id: articleId }, data: { status: "SCRAPED" } }).catch(() => {});
+      await disconnectAll().catch(() => {});
+      process.exit(2);
+    }
+    if (isOpenRouterRateLimitError(err)) {
+      console.error(
+        "[analyst-process] OPENROUTER_RATE_LIMIT All analyst models rate limited after retries. Retry later or add provider BYOK: https://openrouter.ai/settings/integrations",
+      );
+      await db.article.update({ where: { id: articleId }, data: { status: "SCRAPED" } }).catch(() => {});
+      await disconnectAll().catch(() => {});
+      process.exit(3);
+    }
+    throw err;
+  }
 
-  await logCost("analyst", MODELS.ANALYST, response.promptTokens, response.completionTokens, response.generationId);
+  await logCost(
+    "analyst",
+    analystModelConfig(response.modelUsed),
+    response.promptTokens,
+    response.completionTokens,
+    response.generationId,
+  );
 
   // Robust JSON parsing - extract JSON from markdown code blocks if present
   let jsonText = response.content;

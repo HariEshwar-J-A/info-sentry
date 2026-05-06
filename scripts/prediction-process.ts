@@ -11,7 +11,7 @@
 import "dotenv/config";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { getChromaClient, COLLECTIONS } from "./lib/chromadb.js";
-import { getModelsForCurrentBudget, DEEPSEEK_V3, type ModelConfig } from "./lib/models.js";
+import { getModelsForCurrentBudget, DEEPSEEK_V3, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
 
@@ -135,9 +135,10 @@ async function main(): Promise<void> {
     },
   ];
 
-  // If primary model is tier 1 (Kimi), fall back to DeepSeek V3.2 then tier 3 on empty content
-  const fallbackChain: ModelConfig[] = model.tier === 1
-    ? [model, DEEPSEEK_V3]
+  // Tier 1 (Kimi): empty JSON often means reasoning burned max_tokens — fall back to cheaper models.
+  const fallbackChain: ModelConfig[] =
+    model.tier === 1 ?
+      [model, DEEPSEEK_V3, TIER_3_BUDGET].filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
     : [model];
 
   let response: Awaited<ReturnType<typeof chatCompletion>> | null = null;
@@ -149,12 +150,21 @@ async function main(): Promise<void> {
       response = await chatCompletion(
         candidate.id,
         messages,
-        { temperature: 0.5, maxTokens: candidate.tier >= 3 ? 800 : 1500, responseFormat: { type: "json_object" } },
+        {
+          temperature: 0.5,
+          maxTokens: candidate.tier >= 3 ? 1200 : 2000,
+          responseFormat: { type: "json_object" },
+          rateLimitFallbackModels: [],
+        },
       );
       break;
     } catch (err) {
       const msg = (err as Error).message;
-      if (msg.includes("Empty response") && candidate !== fallbackChain.at(-1)) {
+      const recoverableEmpty =
+        msg.includes("Empty response") ||
+        msg.includes("finish_reason=length") ||
+        msg.includes("finish_reason=context");
+      if (recoverableEmpty && candidate !== fallbackChain.at(-1)) {
         console.warn(`[prediction] ${candidate.name} returned empty — trying fallback`);
         continue;
       }

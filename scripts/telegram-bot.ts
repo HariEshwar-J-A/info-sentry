@@ -19,6 +19,8 @@ const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
 const ADMIN_ID = process.env["TELEGRAM_ADMIN_ID"]!;
 const SUPERGROUP_ID = process.env["TELEGRAM_SUPERGROUP_ID"] ?? "";
 const MONTHLY_BUDGET = parseFloat(process.env["MONTHLY_BUDGET_USD"] ?? "7.30");
+/** Scout v3 + ScrapeGraph needs more than legacy 2-minute caps */
+const SCOUT_SCRIPT_TIMEOUT_MS = parseInt(process.env["SCOUT_SCRIPT_TIMEOUT_MS"] ?? "900000", 10);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -92,6 +94,7 @@ async function cmdStatus(chatId: number): Promise<void> {
   const health = JSON.parse(raw) as {
     counts: { articles: number; summaries: number; predictions: number; pendingArticles: number };
     agents: { name: string; isActive: boolean; lastError: string | null }[];
+    scrapegraph?: { ok: boolean; models?: { queryExpand?: string; sgai?: string } };
   };
   const db = getOpenClawDb();
   const costs = await db.costLog.findMany({
@@ -101,6 +104,10 @@ async function cmdStatus(chatId: number): Promise<void> {
   const spent = costs.reduce((s, c) => s + c.totalCostUsd, 0);
   const pct = Math.round((spent / MONTHLY_BUDGET) * 100);
   const active = health.agents.filter((a) => a.isActive).length;
+  const sg = health.scrapegraph;
+  const scoutLine = sg
+    ? `\n<b>Scout v3:</b>\n• Sidecar: ${sg.ok ? "✅ OK" : "⚠️ down (Cheerio/snippets only)"}\n• Models: <code>${sg.models?.queryExpand ?? "?"}</code> / <code>${sg.models?.sgai ?? "?"}</code>\n`
+    : "";
   await send(
     chatId,
     `<b>📊 Info-Sentry Status</b>\n\n` +
@@ -109,8 +116,9 @@ async function cmdStatus(chatId: number): Promise<void> {
       `• Summaries: ${health.counts.summaries}\n` +
       `• Predictions: ${health.counts.predictions}\n` +
       `• Pending: ${health.counts.pendingArticles}\n\n` +
-      `<b>Agents:</b> ${active}/5 active\n\n` +
-      `<b>Budget:</b> $${spent.toFixed(4)} / $${MONTHLY_BUDGET.toFixed(2)} (${pct}%)\n\n` +
+      `<b>Agents:</b> ${active}/5 active\n` +
+      scoutLine +
+      `\n<b>Budget:</b> $${spent.toFixed(4)} / $${MONTHLY_BUDGET.toFixed(2)} (${pct}%)\n\n` +
       `✅ System operational`,
   );
 }
@@ -167,10 +175,14 @@ async function cmdRun(chatId: number): Promise<void> {
   await send(
     chatId,
     "🚀 <b>Pipeline starting...</b>\n\n" +
-      "1️⃣ Scraping sources\n2️⃣ Analyzing with AI\n3️⃣ Generating predictions\n4️⃣ Posting to supergroup\n\n" +
-      "⏱️ Takes 1-3 minutes. New posts will appear in your supergroup.",
+      "1️⃣ Scraping sources (Scout v3)\n2️⃣ Analyzing with AI\n3️⃣ Generating predictions\n4️⃣ Posting to supergroup\n\n" +
+      `⏱️ Scout may take several minutes (cap ${Math.round(SCOUT_SCRIPT_TIMEOUT_MS / 60_000)}m). Run <code>docker compose up -d scrapegraph</code> for LLM extraction.`,
   );
-  exec("npx", ["tsx", "scripts/scout-run.ts"], { cwd: process.cwd(), env: process.env, timeout: 120_000 })
+  exec("npx", ["tsx", "scripts/scout-run.ts"], {
+    cwd: process.cwd(),
+    env: process.env,
+    timeout: SCOUT_SCRIPT_TIMEOUT_MS,
+  })
     .then(() =>
       exec("npx", ["tsx", "scripts/pipeline-run.ts"], {
         cwd: process.cwd(),

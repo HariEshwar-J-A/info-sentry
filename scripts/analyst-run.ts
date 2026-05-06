@@ -15,20 +15,34 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
+import {
+  assertOpenRouterKeyHasHeadroom,
+  isOpenRouterKeyLimitExceeded,
+  isOpenRouterKeyLimitExitCode,
+  isOpenRouterRateLimitError,
+  isOpenRouterRateLimitExitCode,
+  OPENROUTER_KEY_SETTINGS_URL,
+} from "./lib/openrouter.js";
 
 const exec = promisify(execFile);
 const TSX = process.platform === "win32" ? "npx.cmd" : "npx";
+
+const ANALYST_PROCESS_TIMEOUT_MS = parseInt(process.env["ANALYST_PROCESS_TIMEOUT_MS"] ?? "420000", 10);
 
 const IGNORED_STDERR = [
   "The 'path' argument is deprecated",
   "Use --trace-deprecation",
 ];
 
-async function runScript(script: string, args: string[]): Promise<string> {
+async function runScript(
+  script: string,
+  args: string[],
+  timeoutMs: number = 120_000,
+): Promise<string> {
   const { stdout, stderr } = await exec(TSX, ["tsx", script, ...args], {
     cwd: process.cwd(),
     env: process.env,
-    timeout: 120_000,
+    timeout: timeoutMs,
   });
   const filtered = stderr
     .split("\n")
@@ -122,6 +136,18 @@ async function main(): Promise<void> {
   const interestId = parseInterestIdArg();
   console.log("[analyst] Starting analyst run");
 
+  try {
+    await assertOpenRouterKeyHasHeadroom();
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg.includes("reached key limit")) {
+      console.error(`[analyst] ${msg}`);
+      await disconnectAll();
+      process.exit(1);
+    }
+    console.warn("[analyst] OpenRouter key preflight:", msg);
+  }
+
   let mainNewsThreadId: number | undefined;
   if (SUPERGROUP_ID) {
     const topic = await db.forumTopic.findUnique({ where: { name: "Main-News" } });
@@ -144,12 +170,17 @@ async function main(): Promise<void> {
   console.log(`[analyst] ${articles.length} SCRAPED articles to analyze`);
 
   let processed = 0;
+  let stoppedForKeyLimit = false;
   for (const article of articles) {
     try {
       console.log(`[analyst] Analyzing: ${article.title}`);
       await db.article.update({ where: { id: article.id }, data: { status: "ANALYZING" } });
 
-      const output = await runScript("scripts/analyst-process.ts", [`--articleId=${article.id}`]);
+      const output = await runScript(
+        "scripts/analyst-process.ts",
+        [`--articleId=${article.id}`],
+        ANALYST_PROCESS_TIMEOUT_MS,
+      );
       const result = JSON.parse(output) as {
         summaryId: string;
         keyTopics: string[];
@@ -167,16 +198,55 @@ async function main(): Promise<void> {
       processed++;
       console.log(`[analyst] Done: ${article.title}`);
     } catch (err) {
+      const rateLimited =
+        isOpenRouterRateLimitExitCode(err) ||
+        isOpenRouterRateLimitError(err);
+      if (rateLimited) {
+        console.warn(
+          "[analyst] Provider rate limited — waiting 25s before next article (current article left SCRAPED). Tip: https://openrouter.ai/settings/integrations",
+        );
+        await db.article.update({ where: { id: article.id }, data: { status: "SCRAPED" } }).catch(() => {});
+        await sleep(25_000);
+        continue;
+      }
+      const keyBlocked =
+        isOpenRouterKeyLimitExitCode(err) || isOpenRouterKeyLimitExceeded(err);
+      if (keyBlocked) {
+        stoppedForKeyLimit = true;
+        console.error(
+          `[analyst] OpenRouter key spending limit exceeded — stopping batch. Configure at ${OPENROUTER_KEY_SETTINGS_URL}`,
+        );
+        await db.article.update({ where: { id: article.id }, data: { status: "SCRAPED" } }).catch(() => {});
+        await db.agentConfig
+          .upsert({
+            where: { agentName: "analyst" },
+            update: {
+              lastRunAt: new Date(),
+              lastError: "OpenRouter key limit exceeded — raise/remove cap at openrouter.ai/settings/keys",
+            },
+            create: {
+              agentName: "analyst",
+              lastRunAt: new Date(),
+              lastError: "OpenRouter key limit exceeded — raise/remove cap at openrouter.ai/settings/keys",
+            },
+          })
+          .catch(() => {});
+        break;
+      }
       console.error(`[analyst] Failed: ${article.title}`, err);
       await db.article.update({ where: { id: article.id }, data: { status: "FAILED" } }).catch(() => {});
     }
   }
 
-  await db.agentConfig.upsert({
-    where: { agentName: "analyst" },
-    update: { lastRunAt: new Date(), lastError: null },
-    create: { agentName: "analyst", lastRunAt: new Date() },
-  }).catch(() => {});
+  if (!stoppedForKeyLimit) {
+    await db.agentConfig
+      .upsert({
+        where: { agentName: "analyst" },
+        update: { lastRunAt: new Date(), lastError: null },
+        create: { agentName: "analyst", lastRunAt: new Date() },
+      })
+      .catch(() => {});
+  }
 
   console.log(`[analyst] Complete: ${processed}/${articles.length} articles analyzed`);
   await disconnectAll();

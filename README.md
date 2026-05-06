@@ -30,6 +30,9 @@ make db-migrate
 
 # If migrate fails with "must be owner of table …", see **Database migrations** below.
 
+# 3b. (Recommended for Scout v3) ScrapeGraphAI sidecar — LLM-assisted article extraction
+docker compose up -d scrapegraph
+
 # 4. (Optional) Create Telegram forum topics
 make db-topics
 
@@ -100,6 +103,7 @@ make db-topics    Ensure Telegram forum topics exist in supergroup
 | OpenClaw gateway | 18790 | Agent runtime (Manager, Scout, Analyst, Prediction, Feedback, Coder) |
 | Next.js web | 3001 | Web UI and REST API |
 | Telegram bot | — | User commands, inline button callbacks, notifications |
+| ScrapeGraph sidecar | **8811** (`127.0.0.1`) | Scout v3 — SmartScraperGraph (`docker compose up -d scrapegraph`) |
 
 ---
 

@@ -12,8 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
+# Do NOT chain `pip … || true` — that masks pip failures. Optional playwright-deps in its own layer.
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m playwright install chromium \
+    && python -c "import uvicorn, fastapi; import scrapegraphai"
+
+RUN python -m playwright install chromium \
     && python -m playwright install-deps chromium || true
 
 COPY app.py .
@@ -24,4 +27,5 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8811
 
 # Listen on all interfaces so Docker port publishing works; bind to 127.0.0.1 on the host in compose.
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8811"]
+# Use module entrypoint — bare `uvicorn` may not be on PATH in slim images / broken installs.
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8811"]
