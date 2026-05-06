@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
 interface FeedbackBody {
   articleId: string
@@ -9,6 +9,9 @@ interface FeedbackBody {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const body = (await request.json()) as FeedbackBody
     const { articleId, type, topics } = body
@@ -24,7 +27,7 @@ export async function POST(request: Request) {
       await Promise.all(
         topics.map(async (topic) => {
           const existing = await prisma.interest.findUnique({
-            where: { userId_topic: { userId: OWNER_USER_ID, topic } },
+            where: { userId_topic: { userId, topic } },
             select: { id: true, score: true, searchKeywords: true },
           })
 
@@ -34,7 +37,7 @@ export async function POST(request: Request) {
               : existing.searchKeywords
 
             await prisma.interest.update({
-              where: { userId_topic: { userId: OWNER_USER_ID, topic } },
+              where: { userId_topic: { userId, topic } },
               data: {
                 score: Math.max(0.1, Math.min(10, existing.score + scoreDelta)),
                 searchKeywords: newKeywords,
@@ -43,7 +46,7 @@ export async function POST(request: Request) {
           } else if (type === 'like') {
             await prisma.interest.create({
               data: {
-                userId: OWNER_USER_ID,
+                userId,
                 topic,
                 score: 1.0 + scoreDelta,
                 isActive: true,
@@ -62,7 +65,7 @@ export async function POST(request: Request) {
           where: { articleId },
           create: {
             articleId,
-            userId: OWNER_USER_ID,
+            userId,
             userSentiment: type === 'like' ? 'positive' : 'negative',
             keywords: topics,
           },

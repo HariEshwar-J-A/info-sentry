@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getFeedArticles, searchArticlesByAI } from '@/lib/feed'
+import { requireUserId } from '@/lib/user'
 
 export async function GET(request: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const url = new URL(request.url)
     const hoursParam = url.searchParams.get('hours')
@@ -17,11 +21,11 @@ export async function GET(request: Request) {
     const aiQuery = url.searchParams.get('aiQuery') ?? undefined
 
     if (aiQuery) {
-      const articles = await searchArticlesByAI(aiQuery)
+      const articles = await searchArticlesByAI(aiQuery, userId)
       return NextResponse.json(articles)
     }
 
-    const articles = await getFeedArticles({ hours, topic, minRelevance, keyword, sort, sentimentMin, sentimentMax, dateFrom, dateTo })
+    const articles = await getFeedArticles({ userId, hours, topic, minRelevance, keyword, sort, sentimentMin, sentimentMax, dateFrom, dateTo })
     return NextResponse.json(articles)
   } catch (error) {
     console.error('Feed API error:', error)

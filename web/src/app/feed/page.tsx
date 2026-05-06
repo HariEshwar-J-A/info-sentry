@@ -3,6 +3,7 @@ import { TopBar } from '@/components/shell/TopBar'
 import { FeedClient } from '@/components/feed/FeedClient'
 import { getFeedArticles, type ArticleWithSummary } from '@/lib/feed'
 import { SourceTypeToggle } from '@/components/shell/SourceTypeToggle'
+import { getUserId } from '@/lib/user'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -10,7 +11,8 @@ export const revalidate = 0
 export default async function FeedPage() {
   let articles: ArticleWithSummary[] = []
   try {
-    articles = await getFeedArticles()
+    const userId = await getUserId() ?? undefined
+    articles = await getFeedArticles(userId ? { userId } : undefined)
   } catch (err) {
     console.error('Feed fetch error:', err)
   }

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { openrouter, CHAT_MODEL } from '@/lib/openrouter'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
+import { getSourceIdsForUser } from '@/lib/feed'
 
 interface ChatBody {
   message: string
@@ -8,12 +9,17 @@ interface ChatBody {
   sessionId?: string
 }
 
-async function buildSystemPrompt(): Promise<string> {
+async function buildSystemPrompt(userId: string): Promise<string> {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+  const sourceIds = await getSourceIdsForUser(userId)
+  const sourceFilter =
+    sourceIds.length === 0 ? { in: [] as string[] } : { in: sourceIds }
 
   const [articles, interests, predictions] = await Promise.all([
     prisma.article.findMany({
       where: {
+        sourceId: sourceFilter,
         scrapedAt: { gte: since24h },
         status: { in: ['SUMMARIZED', 'POSTED'] },
         summary: { isNot: null },
@@ -33,7 +39,7 @@ async function buildSystemPrompt(): Promise<string> {
       take: 15,
     }),
     prisma.interest.findMany({
-      where: { userId: OWNER_USER_ID, isActive: true },
+      where: { userId, isActive: true },
       orderBy: { score: 'desc' },
       take: 10,
     }),
@@ -103,6 +109,9 @@ ${predictionList || 'No pending predictions.'}
 }
 
 export async function POST(request: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const body = (await request.json()) as ChatBody
     const { message, history = [], sessionId: incomingSessionId } = body
@@ -120,14 +129,14 @@ export async function POST(request: Request) {
     if (!sessionId) {
       const session = await prisma.webChatSession.create({
         data: {
-          userId: OWNER_USER_ID,
+          userId,
           title: message.slice(0, 60),
         },
       })
       sessionId = session.id
     } else {
       const existing = await prisma.webChatSession.findUnique({ where: { id: sessionId } })
-      if (!existing) {
+      if (!existing || existing.userId !== userId) {
         return new Response(JSON.stringify({ error: 'Session not found' }), {
           status: 404,
           headers: { 'Content-Type': 'application/json' },
@@ -137,7 +146,7 @@ export async function POST(request: Request) {
 
     const finalSessionId = sessionId
 
-    const systemPrompt = await buildSystemPrompt()
+    const systemPrompt = await buildSystemPrompt(userId)
 
     const messages = [
       ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),

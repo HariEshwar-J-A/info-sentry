@@ -1,11 +1,14 @@
 import { prisma } from '@/lib/prisma'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
 // GET /api/interests/[id]/sources — list sources linked to this interest
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   const { id } = await params
   try {
-    const interest = await prisma.interest.findFirst({ where: { id, userId: OWNER_USER_ID } })
+    const interest = await prisma.interest.findFirst({ where: { id, userId } })
     if (!interest) return Response.json({ error: 'Not found' }, { status: 404 })
 
     const junctions = await prisma.interestSource.findMany({
@@ -27,9 +30,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 // POST /api/interests/[id]/sources — add (or create) a source and link it
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   const { id } = await params
   try {
-    const interest = await prisma.interest.findFirst({ where: { id, userId: OWNER_USER_ID } })
+    const interest = await prisma.interest.findFirst({ where: { id, userId } })
     if (!interest) return Response.json({ error: 'Not found' }, { status: 404 })
 
     const body = (await req.json()) as {

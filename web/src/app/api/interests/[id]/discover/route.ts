@@ -1,15 +1,18 @@
 import { spawn } from 'child_process'
 import { REPO_ROOT } from '@/lib/agents'
 import { prisma } from '@/lib/prisma'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
 const MAX_SOURCES_PER_TOPIC = 50
 
 // POST /api/interests/[id]/discover — run source-discovery.ts via SSE stream
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   const { id } = await params
 
-  const interest = await prisma.interest.findFirst({ where: { id, userId: OWNER_USER_ID } })
+  const interest = await prisma.interest.findFirst({ where: { id, userId } })
   if (!interest) return new Response('Not found', { status: 404 })
 
   // Check hard limit

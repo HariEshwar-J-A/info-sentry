@@ -1,6 +1,13 @@
 import { prisma } from './prisma'
-import { OWNER_USER_ID } from './user'
 import { openrouter } from './openrouter'
+
+export async function getSourceIdsForUser(userId: string): Promise<string[]> {
+  const interests = await prisma.interest.findMany({
+    where: { userId, isActive: true },
+    select: { sources: { select: { sourceId: true } } },
+  })
+  return [...new Set(interests.flatMap((i) => i.sources.map((s) => s.sourceId)))]
+}
 
 export interface PredictionSnippet {
   id: string
@@ -51,6 +58,7 @@ export interface SurpriseArticle extends ArticleWithSummary {
 }
 
 export async function getFeedArticles(options?: {
+  userId?: string
   hours?: number
   topic?: string
   minRelevance?: number
@@ -62,6 +70,7 @@ export async function getFeedArticles(options?: {
   dateTo?: Date
 }): Promise<ArticleWithSummary[]> {
   const {
+    userId,
     hours,          // undefined = no time limit
     topic,
     minRelevance = 0,
@@ -72,6 +81,14 @@ export async function getFeedArticles(options?: {
     dateFrom,
     dateTo,
   } = options ?? {}
+
+  const sourceFilter =
+    userId !== undefined
+      ? await (async () => {
+          const ids = await getSourceIdsForUser(userId)
+          return ids.length === 0 ? { in: [] as string[] } : { in: ids }
+        })()
+      : undefined
 
   const since = hours !== undefined ? new Date(Date.now() - hours * 60 * 60 * 1000) : undefined
 
@@ -88,6 +105,7 @@ export async function getFeedArticles(options?: {
   const dateGte = dateFrom ?? since
   const articles = await prisma.article.findMany({
     where: {
+      ...(sourceFilter ? { sourceId: sourceFilter } : {}),
       ...(dateGte ? { scrapedAt: { gte: dateGte } } : {}),
       ...(dateTo ? { scrapedAt: { lte: dateTo } } : {}),
       status: { in: ['SUMMARIZED', 'POSTED'] },
@@ -146,11 +164,20 @@ export async function getFeedArticles(options?: {
   return articles as unknown as ArticleWithSummary[]
 }
 
-export async function searchArticlesByAI(query: string): Promise<ArticleWithSummary[]> {
+export async function searchArticlesByAI(query: string, userId?: string): Promise<ArticleWithSummary[]> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
+  const sourceFilter =
+    userId !== undefined
+      ? await (async () => {
+          const ids = await getSourceIdsForUser(userId)
+          return ids.length === 0 ? { in: [] as string[] } : { in: ids }
+        })()
+      : undefined
 
   const candidates = await prisma.article.findMany({
     where: {
+      ...(sourceFilter ? { sourceId: sourceFilter } : {}),
       scrapedAt: { gte: since },
       status: { in: ['SUMMARIZED', 'POSTED'] },
       summary: { isNot: null },
@@ -209,11 +236,32 @@ ${articleList}`,
   }
 }
 
-export async function getTopicClusters(): Promise<TopicCluster[]> {
+export async function getTopicClusters(userId?: string): Promise<TopicCluster[]> {
   const since = new Date(Date.now() - 72 * 60 * 60 * 1000)
+
+  const userTopics =
+    userId !== undefined
+      ? new Set(
+          (
+            await prisma.interest.findMany({
+              where: { userId, isActive: true },
+              select: { topic: true },
+            })
+          ).map((i) => i.topic.toLowerCase()),
+        )
+      : null
+
+  const sourceFilter =
+    userId !== undefined
+      ? await (async () => {
+          const ids = await getSourceIdsForUser(userId)
+          return ids.length === 0 ? { in: [] as string[] } : { in: ids }
+        })()
+      : undefined
 
   const articles = await prisma.article.findMany({
     where: {
+      ...(sourceFilter ? { sourceId: sourceFilter } : {}),
       scrapedAt: { gte: since },
       status: { in: ['SUMMARIZED', 'POSTED'] },
       summary: { isNot: null },
@@ -242,7 +290,12 @@ export async function getTopicClusters(): Promise<TopicCluster[]> {
 
   const clusters: TopicCluster[] = []
 
-  for (const [topic, topicArticles] of Array.from(topicMap.entries())) {
+  const entries = Array.from(topicMap.entries()).filter(([t]) => {
+    if (!userTopics) return true
+    return userTopics.has(t.toLowerCase())
+  })
+
+  for (const [topic, topicArticles] of entries) {
     const withScores = topicArticles.filter((a) => a.summary?.relevanceScore != null)
     const avgRelevance = withScores.length > 0
       ? withScores.reduce((s, a) => s + (a.summary?.relevanceScore ?? 0), 0) / withScores.length
@@ -259,12 +312,25 @@ export async function getTopicClusters(): Promise<TopicCluster[]> {
   return clusters.sort((a, b) => b.articleCount - a.articleCount).slice(0, 20)
 }
 
-export async function getSurpriseArticles(limit = 10): Promise<SurpriseArticle[]> {
+export async function getSurpriseArticles(limit = 10, userId?: string): Promise<SurpriseArticle[]> {
   const since = new Date(Date.now() - 72 * 60 * 60 * 1000)
+
+  const sourceFilter =
+    userId !== undefined
+      ? await (async () => {
+          const ids = await getSourceIdsForUser(userId)
+          return ids.length === 0 ? { in: [] as string[] } : { in: ids }
+        })()
+      : undefined
+
+  const interestsPromise = userId
+    ? prisma.interest.findMany({ where: { userId, isActive: true } })
+    : Promise.resolve([] as { topic: string; score: number }[])
 
   const [articles, interests] = await Promise.all([
     prisma.article.findMany({
       where: {
+        ...(sourceFilter ? { sourceId: sourceFilter } : {}),
         scrapedAt: { gte: since },
         status: { in: ['SUMMARIZED', 'POSTED'] },
         summary: { isNot: null },
@@ -278,7 +344,7 @@ export async function getSurpriseArticles(limit = 10): Promise<SurpriseArticle[]
       orderBy: { scrapedAt: 'desc' },
       take: 200,
     }),
-    prisma.interest.findMany({ where: { userId: OWNER_USER_ID, isActive: true } }),
+    interestsPromise,
   ])
 
   const interestMap = new Map<string, number>()
@@ -321,9 +387,9 @@ export async function getArticleDetail(id: string) {
   })
 }
 
-export async function getActiveInterests() {
+export async function getActiveInterests(userId: string) {
   return prisma.interest.findMany({
-    where: { userId: OWNER_USER_ID, isActive: true },
+    where: { userId, isActive: true },
     orderBy: { score: 'desc' },
   })
 }

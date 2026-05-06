@@ -1,10 +1,13 @@
 import { prisma } from '@/lib/prisma'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const interests = await prisma.interest.findMany({
-      where: { userId: OWNER_USER_ID },
+      where: { userId },
       orderBy: [{ isActive: 'desc' }, { score: 'desc' }, { createdAt: 'desc' }],
       select: {
         id: true,
@@ -47,6 +50,9 @@ async function ensureGoogleNewsSource(topic: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const { topic, description } = (await req.json()) as { topic: string; description?: string }
 
@@ -56,7 +62,7 @@ export async function POST(req: Request) {
 
     // Check duplicate
     const existing = await prisma.interest.findUnique({
-      where: { userId_topic: { userId: OWNER_USER_ID, topic: topic.trim() } },
+      where: { userId_topic: { userId, topic: topic.trim() } },
     })
     if (existing) {
       if (!existing.isActive) {
@@ -81,7 +87,7 @@ export async function POST(req: Request) {
 
     const interest = await prisma.interest.create({
       data: {
-        userId: OWNER_USER_ID,
+        userId,
         topic: topic.trim(),
         description: description?.trim() || null,
         searchKeywords: baseKeywords,

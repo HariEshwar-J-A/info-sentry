@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const notifications = await prisma.notification.findMany({
-      where: { userId: OWNER_USER_ID },
+      where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
     })

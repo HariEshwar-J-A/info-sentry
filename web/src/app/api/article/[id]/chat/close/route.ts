@@ -1,11 +1,14 @@
 import { prisma } from '@/lib/prisma'
 import { openrouter } from '@/lib/openrouter'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const { id: articleId } = await params
     const { history = [] } = (await request.json()) as {
@@ -59,7 +62,7 @@ Return this exact JSON structure:
       where: { articleId },
       create: {
         articleId,
-        userId: OWNER_USER_ID,
+        userId,
         chatSummary: insight.chatSummary,
         userSentiment: insight.userSentiment,
         keywords: insight.keywords,
@@ -77,7 +80,7 @@ Return this exact JSON structure:
     // Feedback loop: update Interest.searchKeywords for matched topics
     if (insight.keywords.length > 0) {
       const interests = await prisma.interest.findMany({
-        where: { userId: OWNER_USER_ID, isActive: true },
+        where: { userId, isActive: true },
         select: { id: true, topic: true, score: true, searchKeywords: true },
       })
 

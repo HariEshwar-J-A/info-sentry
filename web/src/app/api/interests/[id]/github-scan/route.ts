@@ -2,15 +2,18 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { REPO_ROOT } from '@/lib/agents'
 import { prisma } from '@/lib/prisma'
-import { OWNER_USER_ID } from '@/lib/user'
+import { requireUserId } from '@/lib/user'
 
 const IGNORED_STDERR = ["The 'path' argument is deprecated", 'Use --trace-deprecation']
 
 // POST /api/interests/[id]/github-scan — SSE: scout → analyst (sequential)
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   const { id } = await params
 
-  const interest = await prisma.interest.findFirst({ where: { id, userId: OWNER_USER_ID } })
+  const interest = await prisma.interest.findFirst({ where: { id, userId } })
   if (!interest) return new Response('Not found', { status: 404 })
 
   const { dryRun } = await req.json().catch(() => ({ dryRun: false })) as { dryRun?: boolean }

@@ -1,6 +1,10 @@
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/user'
 
-export async function GET(_req: Request, { params }: { params: Promise<{ sessionId: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ sessionId: string }> }) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
   try {
     const { sessionId } = await params
     const session = await prisma.webChatSession.findUnique({
@@ -10,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ session
       },
     })
 
-    if (!session) {
+    if (!session || session.userId !== userId) {
       return Response.json({ error: 'Session not found' }, { status: 404 })
     }
 

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { TopBar } from '@/components/shell/TopBar'
+import { getUserId } from '@/lib/user'
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { getSurpriseArticles, type SurpriseArticle } from '@/lib/feed'
@@ -11,7 +12,8 @@ export const revalidate = 0
 export default async function SurprisePage() {
   let articles: SurpriseArticle[] = []
   try {
-    articles = await getSurpriseArticles(12)
+    const userId = await getUserId() ?? undefined
+    articles = await getSurpriseArticles(12, userId)
   } catch (err) {
     console.error('Surprise fetch error:', err)
   }
