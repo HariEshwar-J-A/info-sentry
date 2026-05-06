@@ -155,7 +155,23 @@ cmd_start() {
   ok "Migrations up to date"
 
   echo ""
+  info "Building web (Next.js)…"
+  # Ensure we don't serve stale route handlers from a previous build.
+  rm -rf "$ROOT/web/.next" 2>/dev/null || true
+  npm run --prefix "$ROOT/web" build 2>&1 | tail -20
+  ok "Web build complete"
+
+  echo ""
   info "Starting application services…"
+  # Defensive: if PID files were lost, ensure ports are free before starting.
+  if lsof -i :18790 2>/dev/null | grep -q "(LISTEN)"; then
+    warn "Port 18790 already in use — killing listener(s)"
+    lsof -i :18790 2>/dev/null | awk '/\\(LISTEN\\)/ {print $2}' | xargs kill -9 2>/dev/null || true
+  fi
+  if lsof -i :3001 2>/dev/null | grep -q "(LISTEN)"; then
+    warn "Port 3001 already in use — killing listener(s)"
+    lsof -i :3001 2>/dev/null | awk '/\\(LISTEN\\)/ {print $2}' | xargs kill -9 2>/dev/null || true
+  fi
   start_service gateway  openclaw --profile info-sentry gateway --port 18790
   start_service web      npm run --prefix "$ROOT/web" start
   start_service bot      npx --prefix "$ROOT" tsx "$ROOT/scripts/telegram-bot.ts"

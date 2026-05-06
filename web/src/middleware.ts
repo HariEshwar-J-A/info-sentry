@@ -2,29 +2,42 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const SESSION_COOKIE = 'is_auth'
 const SESSION_DAYS   = 30
+const USER_ID_HEADER = 'x-user-id'
 
 // Paths that bypass auth entirely
 const PUBLIC_PREFIXES = ['/login', '/api/auth']
+
+export type VerifyTokenResult =
+  | { valid: true; userId: string }
+  | { valid: false }
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (PUBLIC_PREFIXES.some(p => pathname.startsWith(p))) return NextResponse.next()
 
-  // If credentials not configured, bypass auth (local dev / first run)
-  if (!process.env.WEB_AUTH_USERNAME || !process.env.WEB_AUTH_PASSWORD) return NextResponse.next()
+  // If session secret is not configured, bypass auth (local dev / first run)
+  // Using WEB_AUTH_SECRET here avoids accidental bypass when oauth env is present
+  // but legacy username/password vars are not set in web/.env.local.
+  if (!process.env.WEB_AUTH_SECRET) return NextResponse.next()
 
   const token  = request.cookies.get(SESSION_COOKIE)?.value
   const secret = process.env.WEB_AUTH_SECRET ?? 'dev-secret-change-me'
 
-  if (!token || !(await verifyToken(token, secret))) {
+  const verified = token ? await verifyToken(token, secret) : { valid: false as const }
+  if (!verified.valid) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     if (pathname !== '/') url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
 
-  return NextResponse.next()
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set(USER_ID_HEADER, verified.userId)
+
+  return NextResponse.next({
+    request: { headers: requestHeaders },
+  })
 }
 
 export const config = {
@@ -34,22 +47,26 @@ export const config = {
 
 // ── Token helpers (Web Crypto — Edge runtime compatible) ──────────────────
 
-export async function createToken(secret: string): Promise<string> {
+export async function createToken(secret: string, userId: string): Promise<string> {
   const exp = Date.now() + SESSION_DAYS * 86_400_000
-  const sig  = await hmacHex(secret, String(exp))
-  return `${exp}.${sig}`
+  const payload = `${userId}:${exp}`
+  const sig  = await hmacHex(secret, payload)
+  return `${userId}.${exp}.${sig}`
 }
 
-async function verifyToken(token: string, secret: string): Promise<boolean> {
-  const dot = token.indexOf('.')
-  if (dot === -1) return false
-  const expStr = token.slice(0, dot)
-  const sig    = token.slice(dot + 1)
-  const exp    = parseInt(expStr, 10)
-  if (isNaN(exp) || exp < Date.now()) return false
-  const expected = await hmacHex(secret, expStr)
-  // Constant-time comparison via crypto.subtle
-  return expected === sig
+export async function verifyToken(token: string, secret: string): Promise<VerifyTokenResult> {
+  const parts = token.split('.')
+  if (parts.length < 3) return { valid: false }
+  const sig = parts[parts.length - 1]!
+  const expStr = parts[parts.length - 2]!
+  const userId = parts.slice(0, -2).join('.')
+  if (!userId || !expStr) return { valid: false }
+  const exp = parseInt(expStr, 10)
+  if (isNaN(exp) || exp < Date.now()) return { valid: false }
+  const payload = `${userId}:${exp}`
+  const expected = await hmacHex(secret, payload)
+  if (expected !== sig) return { valid: false }
+  return { valid: true, userId }
 }
 
 async function hmacHex(secret: string, data: string): Promise<string> {
