@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { parseStringPromise } from "xml2js";
 import { load } from "cheerio";
 import { getScoutDb, disconnectAll } from "./lib/prisma.js";
+import { parseInterestIdArg } from "./lib/args.js";
 
 // ─── Config ────────────────────────────────────────────────
 
@@ -589,6 +590,7 @@ async function scrapeManualSource(
 async function main(): Promise<void> {
   const db = getScoutDb();
   const globalSeen = new Set<string>(); // cross-phase URL dedup
+  const interestId = parseInterestIdArg();
 
   console.log(`[scout] ═══════════════════════════════════════`);
   console.log(`[scout] Scout v2 — topic-driven parallel scraper`);
@@ -596,7 +598,7 @@ async function main(): Promise<void> {
   console.log(`[scout] ═══════════════════════════════════════\n`);
 
   const interests = await db.interest.findMany({
-    where: { isActive: true },
+    where: { isActive: true, ...(interestId ? { id: interestId } : {}) },
     select: { id: true, topic: true, description: true, searchKeywords: true },
     orderBy: { score: "desc" },
   });
@@ -621,7 +623,7 @@ async function main(): Promise<void> {
 
   // ── Phase 2: Manual sources (parallel, skip Google News) ──
   const junctions = await db.interestSource.findMany({
-    where: { interest: { isActive: true } },
+    where: { interest: { isActive: true, ...(interestId ? { id: interestId } : {}) } },
     include: {
       source: { select: { id: true, name: true, url: true, rssUrl: true, isActive: true } },
     },

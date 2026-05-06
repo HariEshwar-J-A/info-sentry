@@ -1,11 +1,20 @@
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/user'
+import { predictionVisibilityWhere } from '@/lib/predictions'
 
 export async function GET() {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
   try {
     const predictions = await prisma.prediction.findMany({
       where: {
-        status: { in: ['CORRECT', 'INCORRECT', 'PARTIALLY_CORRECT'] },
-        resolutionAnalysis: { not: null },
+        AND: [
+          predictionVisibilityWhere(userId),
+          { status: { in: ['CORRECT', 'INCORRECT', 'PARTIALLY_CORRECT'] } },
+          { resolutionAnalysis: { not: null } },
+        ],
       },
       include: {
         article: { select: { id: true, title: true, url: true } },

@@ -1,15 +1,24 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@prisma/client'
+import { requireUserId } from '@/lib/user'
+import { predictionVisibilityWhere } from '@/lib/predictions'
 
 export async function GET(request: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
   try {
     const url = new URL(request.url)
     const statusParam = url.searchParams.get('status')
     const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '200', 10), 500)
 
-    const where: Prisma.PredictionWhereInput = statusParam
-      ? { status: statusParam as Prisma.EnumPredictionStatusFilter }
-      : {}
+    const where: Prisma.PredictionWhereInput = {
+      AND: [
+        predictionVisibilityWhere(userId),
+        ...(statusParam ? [{ status: statusParam as Prisma.EnumPredictionStatusFilter }] : []),
+      ],
+    }
 
     const predictions = await prisma.prediction.findMany({
       where,

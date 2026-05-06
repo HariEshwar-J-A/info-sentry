@@ -14,6 +14,7 @@ import "dotenv/config";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
+import { parseInterestIdArg } from "./lib/args.js";
 
 const exec = promisify(execFile);
 const TSX = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -117,6 +118,7 @@ async function postPredictionsToTelegram(
 
 async function main(): Promise<void> {
   const db = getOpenClawDb();
+  const interestId = parseInterestIdArg();
   console.log("[predictor] Starting predictor run");
 
   let predictionsThreadId: number | undefined;
@@ -127,7 +129,12 @@ async function main(): Promise<void> {
   }
 
   const articles = await db.article.findMany({
-    where: { status: "SUMMARIZED" },
+    where: {
+      status: "SUMMARIZED",
+      ...(interestId
+        ? { source: { interests: { some: { interestId } } } }
+        : {}),
+    },
     select: { id: true, title: true },
     orderBy: { analyzedAt: "asc" },
     take: 50,

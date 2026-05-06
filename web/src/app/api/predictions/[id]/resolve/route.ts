@@ -1,10 +1,16 @@
 import { prisma } from '@/lib/prisma'
 import { openrouter } from '@/lib/openrouter'
+import { requireUserId } from '@/lib/user'
+import { predictionVisibilityWhere } from '@/lib/predictions'
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
   try {
     const { id } = await params
     const { resolution, userNotes } = (await request.json()) as {
@@ -12,8 +18,13 @@ export async function POST(
       userNotes?: string
     }
 
-    const prediction = await prisma.prediction.findUnique({
-      where: { id },
+    const prediction = await prisma.prediction.findFirst({
+      where: {
+        AND: [
+          { id },
+          predictionVisibilityWhere(userId),
+        ],
+      },
       include: { article: { select: { title: true } } },
     })
 

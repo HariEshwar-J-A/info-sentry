@@ -15,6 +15,8 @@ export async function GET(req: Request) {
         description: true,
         score: true,
         isActive: true,
+        trackNews: true,
+        trackGithub: true,
         searchKeywords: true,
         createdAt: true,
         _count: { select: { sources: true } },
@@ -54,7 +56,12 @@ export async function POST(req: Request) {
   if (auth instanceof Response) return auth
   const { userId } = auth
   try {
-    const { topic, description } = (await req.json()) as { topic: string; description?: string }
+    const { topic, description, trackNews, trackGithub } = (await req.json()) as {
+      topic: string
+      description?: string
+      trackNews?: boolean
+      trackGithub?: boolean
+    }
 
     if (!topic?.trim()) {
       return Response.json({ error: 'Topic is required' }, { status: 400 })
@@ -68,7 +75,12 @@ export async function POST(req: Request) {
       if (!existing.isActive) {
         const updated = await prisma.interest.update({
           where: { id: existing.id },
-          data: { isActive: true, description: description?.trim() || existing.description },
+          data: {
+            isActive: true,
+            description: description?.trim() || existing.description,
+            trackNews: trackNews ?? existing.trackNews,
+            trackGithub: trackGithub ?? existing.trackGithub,
+          },
         })
         // Ensure Google News source exists and is linked even on reactivation
         const gnSourceId = await ensureGoogleNewsSource(topic.trim())
@@ -85,30 +97,23 @@ export async function POST(req: Request) {
     const words = topic.trim().toLowerCase().split(/\s+/)
     const baseKeywords = words.filter((w) => w.length > 2)
 
+    const effectiveTrackNews = trackNews ?? true
+    const effectiveTrackGithub = trackGithub ?? false
+
     const interest = await prisma.interest.create({
       data: {
         userId,
         topic: topic.trim(),
         description: description?.trim() || null,
+        trackNews: effectiveTrackNews,
+        trackGithub: effectiveTrackGithub,
         searchKeywords: baseKeywords,
         score: 1.0,
         isActive: true,
       },
     })
 
-    // 1. Link to all existing active sources
-    const existingSources = await prisma.source.findMany({
-      where: { isActive: true },
-      select: { id: true },
-    })
-    if (existingSources.length > 0) {
-      await prisma.interestSource.createMany({
-        data: existingSources.map((s) => ({ interestId: interest.id, sourceId: s.id })),
-        skipDuplicates: true,
-      })
-    }
-
-    // 2. Create/reuse a Google News RSS source dedicated to this topic
+    // Create/reuse a Google News RSS source dedicated to this topic
     const gnSourceId = await ensureGoogleNewsSource(topic.trim())
     await prisma.interestSource.upsert({
       where: { interestId_sourceId: { interestId: interest.id, sourceId: gnSourceId } },
@@ -116,7 +121,7 @@ export async function POST(req: Request) {
       create: { interestId: interest.id, sourceId: gnSourceId },
     })
 
-    return Response.json({ interest, sourcesLinked: existingSources.length + 1 }, { status: 201 })
+    return Response.json({ interest, sourcesLinked: 1 }, { status: 201 })
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 500 })
   }

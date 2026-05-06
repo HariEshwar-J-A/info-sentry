@@ -24,11 +24,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { userId } = auth
   const { id } = await params
   try {
-    const body = (await req.json()) as { isActive?: boolean; description?: string; score?: number }
+    const body = (await req.json()) as {
+      isActive?: boolean
+      description?: string
+      score?: number
+      trackNews?: boolean
+      trackGithub?: boolean
+    }
     const data = {
       ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       ...(body.description !== undefined ? { description: body.description } : {}),
       ...(body.score !== undefined ? { score: body.score } : {}),
+      ...(body.trackNews !== undefined ? { trackNews: body.trackNews } : {}),
+      ...(body.trackGithub !== undefined ? { trackGithub: body.trackGithub } : {}),
     }
     if (Object.keys(data).length === 0) {
       const row = await prisma.interest.findFirst({ where: { id, userId } })

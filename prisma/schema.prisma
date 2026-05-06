@@ -36,12 +36,15 @@ model Interest {
   description    String?
   score          Float    @default(1.0)
   isActive       Boolean  @default(true)
+  trackNews      Boolean  @default(true)
+  trackGithub    Boolean  @default(false)
   searchKeywords String[] @default([])
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sources InterestSource[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources      InterestSource[]
+  pipelineRuns PipelineRun[]
 
   @@unique([userId, topic])
   @@index([isActive])
@@ -422,4 +425,37 @@ model GitHubRepo {
   @@index([language])
   @@index([scrapedAt])
   @@index([lastPushed])
+}
+
+model PipelineRun {
+  id           String       @id @default(cuid())
+  interestId   String?
+  kind         PipelineKind
+  status       RunStatus    @default(RUNNING)
+  startedAt    DateTime     @default(now())
+  finishedAt   DateTime?
+  exitCode     Int?
+  errorMessage String?
+  stats        Json?
+  logTail      String?      @db.Text
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  interest Interest? @relation(fields: [interestId], references: [id], onDelete: SetNull)
+
+  @@index([interestId, startedAt])
+  @@index([status])
+  @@index([kind, startedAt])
+}
+
+enum PipelineKind {
+  NEWS
+  GITHUB
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
 }

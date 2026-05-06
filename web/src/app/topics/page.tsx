@@ -14,6 +14,8 @@ interface Interest {
   description: string | null
   score: number
   isActive: boolean
+  trackNews: boolean
+  trackGithub: boolean
   searchKeywords: string[]
   createdAt: string
   _count: { sources: number }
@@ -482,9 +484,11 @@ function LogPanel({ lines, onClear }: { lines: LogLine[]; onClear: () => void })
 
 // ─── Add Topic Form ────────────────────────────────────────
 
-function AddTopicForm({ onAdded }: { onAdded: (topic: string) => void }) {
+function AddTopicForm({ onAdded }: { onAdded: (interest: Interest) => void }) {
   const [topic, setTopic] = useState('')
   const [description, setDescription] = useState('')
+  const [trackNews, setTrackNews] = useState(true)
+  const [trackGithub, setTrackGithub] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -492,19 +496,30 @@ function AddTopicForm({ onAdded }: { onAdded: (topic: string) => void }) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!topic.trim()) return
+    if (!trackNews && !trackGithub) {
+      setError('Select at least one topic type (News and/or GitHub)')
+      return
+    }
     setLoading(true)
     setError(null)
     try {
       const res = await fetch('/api/interests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: topic.trim(), description: description.trim() || undefined }),
+        body: JSON.stringify({
+          topic: topic.trim(),
+          description: description.trim() || undefined,
+          trackNews,
+          trackGithub,
+        }),
       })
-      const data = await res.json() as { error?: string }
+      const data = await res.json() as { interest?: Interest; error?: string }
       if (!res.ok) { setError(data.error ?? 'Failed'); return }
-      onAdded(topic.trim())
+      if (data.interest) onAdded(data.interest)
       setTopic('')
       setDescription('')
+      setTrackNews(true)
+      setTrackGithub(false)
       inputRef.current?.focus()
     } catch (err) {
       setError((err as Error).message)
@@ -537,6 +552,16 @@ function AddTopicForm({ onAdded }: { onAdded: (topic: string) => void }) {
           {loading ? 'Adding…' : '+ Add Topic'}
         </button>
       </div>
+      <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+        <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', color: '#a0a0a0' }}>
+          <input type="checkbox" checked={trackNews} onChange={(e) => setTrackNews(e.target.checked)} />
+          Track news feed
+        </label>
+        <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', color: '#a0a0a0' }}>
+          <input type="checkbox" checked={trackGithub} onChange={(e) => setTrackGithub(e.target.checked)} />
+          Track GitHub repos
+        </label>
+      </div>
       {error && <div style={{ fontSize: '12px', color: '#ef4444' }}>{error}</div>}
     </form>
   )
@@ -544,93 +569,52 @@ function AddTopicForm({ onAdded }: { onAdded: (topic: string) => void }) {
 
 // ─── Interest Card ─────────────────────────────────────────
 
-// ─── GitHub Scan Panel ─────────────────────────────────────
-
-function GitHubScanPanel({ interestId, topic, onDone }: { interestId: string; topic: string; onDone: () => void }) {
-  const router = useRouter()
-  const [logs, setLogs] = useState<LogLine[]>([])
-  const [running, setRunning] = useState(true)
-  const [reposFound, setReposFound] = useState(0)
-
-  useEffect(() => {
-    const abort = new AbortController()
-    void (async () => {
-      try {
-        const res = await fetch(`/api/interests/${interestId}/github-scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dryRun: false }),
-          signal: abort.signal,
-        })
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        let count = 0
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const parts = buf.split('\n')
-          buf = parts.pop() ?? ''
-          for (const part of parts) {
-            if (!part.startsWith('data: ')) continue
-            const raw = part.slice(6)
-            if (raw === '[DONE]') break
-            try {
-              const line = JSON.parse(raw) as LogLine
-              setLogs(p => [...p.slice(-300), line])
-              if (line.text.includes('✓')) count++
-            } catch { /* skip */ }
-          }
-        }
-        setReposFound(count)
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError')
-          setLogs(p => [...p, { type: 'error', text: (err as Error).message }])
-      } finally {
-        setRunning(false)
-      }
-    })()
-    return () => abort.abort()
-  }, [interestId])
-
-  return (
-    <div style={{ backgroundColor: '#0a0a0a', border: '1px solid rgba(234,179,8,0.25)', borderRadius: '10px', overflow: 'hidden' }}>
-      <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(234,179,8,0.05)' }}>
-        <span style={{ fontSize: '12px', fontWeight: 600, color: '#eab308' }}>
-          {running ? `⭐ Scanning GitHub for "${topic}"…` : `✅ ${reposFound} repos found for "${topic}"`}
-        </span>
-        {!running && (
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => { window.location.href = '/github-feed' }}
-              style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', background: 'rgba(234,179,8,0.15)', color: '#eab308', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
-              View GitHub Feed →
-            </button>
-            <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Dismiss</button>
-          </div>
-        )}
-      </div>
-      <LogPanel lines={logs} onClear={() => setLogs([])} />
-    </div>
-  )
-}
-
-// ─── Interest Card ─────────────────────────────────────────
-
-function InterestCard({ interest, onRemove, onSeed }: {
+function InterestCard({ interest, onRemove, onRunCreated, onToggleTracking }: {
   interest: Interest
   onRemove: () => void
-  onSeed: (topic: string) => void
+  onRunCreated: (runId: string) => void
+  onToggleTracking: (interestId: string, patch: Partial<Pick<Interest, 'trackNews' | 'trackGithub'>>) => void
 }) {
   const [removing, setRemoving] = useState(false)
   const [showSources, setShowSources] = useState(false)
-  const [showGithubScan, setShowGithubScan] = useState(false)
+  const [runningNews, setRunningNews] = useState(false)
+  const [runningGithub, setRunningGithub] = useState(false)
 
   async function handleRemove() {
     setRemoving(true)
     await fetch(`/api/interests/${interest.id}`, { method: 'DELETE' })
     onRemove()
+  }
+
+  async function runNews() {
+    setRunningNews(true)
+    try {
+      const res = await fetch(`/api/interests/${interest.id}/run-news`, { method: 'POST' })
+      const data = await res.json() as { runId?: string }
+      if (data.runId) onRunCreated(data.runId)
+    } finally {
+      setRunningNews(false)
+    }
+  }
+
+  async function runGithub() {
+    setRunningGithub(true)
+    try {
+      const res = await fetch(`/api/interests/${interest.id}/run-github`, { method: 'POST' })
+      const data = await res.json() as { runId?: string }
+      if (data.runId) onRunCreated(data.runId)
+    } finally {
+      setRunningGithub(false)
+    }
+  }
+
+  async function updateTracking(patch: Partial<Pick<Interest, 'trackNews' | 'trackGithub'>>) {
+    await fetch(`/api/interests/${interest.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    onToggleTracking(interest.id, patch)
   }
 
   return (
@@ -652,18 +636,29 @@ function InterestCard({ interest, onRemove, onSeed }: {
           )}
         </div>
         <div style={{ display: 'flex', gap: '5px', flexShrink: 0, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button onClick={() => onSeed(interest.topic)}
-            style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(99,102,241,0.15)', color: '#6366f1', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
-            ⚡ Seed
-          </button>
-          <button
-            onClick={() => { setShowGithubScan(s => !s); setShowSources(false) }}
-            style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${showGithubScan ? 'rgba(234,179,8,0.4)' : '#2a2a2a'}`, background: showGithubScan ? 'rgba(234,179,8,0.1)' : 'none', color: showGithubScan ? '#eab308' : '#8a8a8a', cursor: 'pointer', fontSize: '11px', fontWeight: 500 }}>
-            ⭐ GitHub
-          </button>
-          <button onClick={() => { setShowSources(s => !s); setShowGithubScan(false) }}
+          {interest.trackNews && (
+            <button onClick={() => void runNews()}
+              style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(99,102,241,0.15)', color: '#6366f1', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+              {runningNews ? 'Running…' : 'Run News'}
+            </button>
+          )}
+          {interest.trackGithub && (
+            <button onClick={() => void runGithub()}
+              style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', background: 'rgba(234,179,8,0.12)', color: '#eab308', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+              {runningGithub ? 'Running…' : 'Run GitHub'}
+            </button>
+          )}
+          <button onClick={() => { setShowSources(s => !s) }}
             style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${showSources ? '#6366f1' : '#2a2a2a'}`, background: showSources ? 'rgba(99,102,241,0.1)' : 'none', color: showSources ? '#a5b4fc' : '#8a8a8a', cursor: 'pointer', fontSize: '11px', fontWeight: 500 }}>
             📡 Sources ({interest._count.sources})
+          </button>
+          <button onClick={() => void updateTracking({ trackNews: !interest.trackNews })}
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: interest.trackNews ? '#6366f1' : '#555', cursor: 'pointer', fontSize: '11px' }}>
+            News: {interest.trackNews ? 'On' : 'Off'}
+          </button>
+          <button onClick={() => void updateTracking({ trackGithub: !interest.trackGithub })}
+            style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: interest.trackGithub ? '#eab308' : '#555', cursor: 'pointer', fontSize: '11px' }}>
+            GitHub: {interest.trackGithub ? 'On' : 'Off'}
           </button>
           <button onClick={() => void handleRemove()} disabled={removing}
             style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: '#555', cursor: removing ? 'default' : 'pointer', fontSize: '11px' }}>
@@ -671,104 +666,7 @@ function InterestCard({ interest, onRemove, onSeed }: {
           </button>
         </div>
       </div>
-      {showGithubScan && (
-        <div style={{ borderTop: '1px solid #1a1a1a', padding: '12px 16px' }}>
-          <GitHubScanPanel interestId={interest.id} topic={interest.topic} onDone={() => setShowGithubScan(false)} />
-        </div>
-      )}
       {showSources && <SourcesPanel interestId={interest.id} />}
-    </div>
-  )
-}
-
-// ─── Seed Pipeline Panel ───────────────────────────────────
-
-function SeedPanel({ topic, onDone }: { topic: string; onDone: () => void }) {
-  const router = useRouter()
-  const [logs, setLogs] = useState<LogLine[]>([])
-  const [running, setRunning] = useState(true)
-  const [articlesProcessed, setArticlesProcessed] = useState(0)
-
-  useEffect(() => {
-    const abort = new AbortController()
-    void (async () => {
-      try {
-        const res = await fetch('/api/interests/seed', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ includeVerifier: false }),
-          signal: abort.signal,
-        })
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        let count = 0
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const parts = buf.split('\n')
-          buf = parts.pop() ?? ''
-          for (const part of parts) {
-            if (!part.startsWith('data: ')) continue
-            const raw = part.slice(6)
-            if (raw === '[DONE]') break
-            try {
-              const line = JSON.parse(raw) as LogLine
-              setLogs((p) => [...p.slice(-500), line])
-              // Count "Done:" lines from analyst as processed articles
-              if (line.type === 'stdout' && line.text.includes('[analyst] Done:')) count++
-            } catch { /* skip */ }
-          }
-        }
-        setArticlesProcessed(count)
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          setLogs((p) => [...p, { type: 'error', text: (err as Error).message }])
-        }
-      } finally {
-        setRunning(false)
-      }
-    })()
-    return () => abort.abort()
-  }, [])
-
-  function goToFeed() {
-    // Hard navigation to bypass Next.js RSC cache — ensures fresh articles are visible
-    window.location.href = `/feed?q=${encodeURIComponent(topic)}`
-  }
-
-  return (
-    <div style={{ backgroundColor: '#0d0d0d', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '12px', padding: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: '13px', fontWeight: 600, color: '#6366f1' }}>
-          {running
-            ? <><span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse 1s infinite', marginRight: '7px' }} />Seeding "{topic}"…</>
-            : articlesProcessed > 0
-              ? `✅ ${articlesProcessed} new article${articlesProcessed !== 1 ? 's' : ''} processed for "${topic}"`
-              : `✅ Pipeline complete — existing articles are in the feed`}
-        </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {!running && (
-            <>
-              <button
-                onClick={goToFeed}
-                style={{ padding: '5px 12px', borderRadius: '6px', border: 'none', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
-              >
-                View Feed →
-              </button>
-              <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Dismiss</button>
-            </>
-          )}
-        </div>
-      </div>
-      {!running && articlesProcessed === 0 && (
-        <div style={{ fontSize: '12px', color: '#555', marginTop: '8px' }}>
-          All recent articles were already processed. The feed already contains articles about your topics — use "View Feed" to search for "{topic}". New articles will appear on the next cron cycle (every 30 min).
-        </div>
-      )}
-      <LogPanel lines={logs} onClear={() => setLogs([])} />
     </div>
   )
 }
@@ -781,7 +679,7 @@ export default function TopicsPage() {
   const [clusters, setClusters] = useState<TopicClusterType[]>([])
   const [loadingInterests, setLoadingInterests] = useState(true)
   const [loadingClusters, setLoadingClusters] = useState(false)
-  const [seedingTopic, setSeedingTopic] = useState<string | null>(null)
+  const router = useRouter()
 
   const fetchInterests = useCallback(() => {
     fetch('/api/interests')
@@ -801,9 +699,20 @@ export default function TopicsPage() {
   useEffect(() => { fetchInterests() }, [fetchInterests])
   useEffect(() => { if (tab === 'clusters') fetchClusters() }, [tab, fetchClusters])
 
-  function handleTopicAdded(topic: string) {
+  async function handleTopicAdded(interest: Interest) {
     fetchInterests()
-    setSeedingTopic(topic)
+    const runIds: string[] = []
+    if (interest.trackNews) {
+      const res = await fetch(`/api/interests/${interest.id}/run-news`, { method: 'POST' })
+      const data = await res.json() as { runId?: string }
+      if (data.runId) runIds.push(data.runId)
+    }
+    if (interest.trackGithub) {
+      const res = await fetch(`/api/interests/${interest.id}/run-github`, { method: 'POST' })
+      const data = await res.json() as { runId?: string }
+      if (data.runId) runIds.push(data.runId)
+    }
+    if (runIds.length > 0) router.push(`/runs?focus=${encodeURIComponent(runIds[0])}`)
   }
 
   const active = interests.filter((i) => i.isActive)
@@ -837,16 +746,9 @@ export default function TopicsPage() {
               <div style={{ fontSize: '12px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Add New Topic</div>
               <AddTopicForm onAdded={handleTopicAdded} />
               <div style={{ fontSize: '11px', color: '#444', marginTop: '6px' }}>
-                New topics are linked to all active sources. A full pipeline (scout → analyst → predictor) runs immediately after adding.
+                Choose whether each topic tracks News and/or GitHub. New topics start only their selected pipeline(s).
               </div>
             </div>
-
-            {seedingTopic && (
-              <SeedPanel
-                topic={seedingTopic}
-                onDone={() => setSeedingTopic(null)}
-              />
-            )}
 
             {loadingInterests ? (
               <div style={{ color: '#555', fontSize: '14px', padding: '20px 0' }}>Loading…</div>
@@ -859,7 +761,13 @@ export default function TopicsPage() {
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {active.map((i) => (
-                        <InterestCard key={i.id} interest={i} onRemove={fetchInterests} onSeed={(t) => setSeedingTopic(t)} />
+                        <InterestCard
+                          key={i.id}
+                          interest={i}
+                          onRemove={fetchInterests}
+                          onRunCreated={(runId) => router.push(`/runs?focus=${encodeURIComponent(runId)}`)}
+                          onToggleTracking={(interestId, patch) => setInterests((prev) => prev.map((it) => it.id === interestId ? { ...it, ...patch } : it))}
+                        />
                       ))}
                     </div>
                   )}
@@ -870,7 +778,13 @@ export default function TopicsPage() {
                     <div style={{ fontSize: '12px', color: '#333', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Paused ({paused.length})</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {paused.map((i) => (
-                        <InterestCard key={i.id} interest={i} onRemove={fetchInterests} onSeed={(t) => setSeedingTopic(t)} />
+                        <InterestCard
+                          key={i.id}
+                          interest={i}
+                          onRemove={fetchInterests}
+                          onRunCreated={(runId) => router.push(`/runs?focus=${encodeURIComponent(runId)}`)}
+                          onToggleTracking={(interestId, patch) => setInterests((prev) => prev.map((it) => it.id === interestId ? { ...it, ...patch } : it))}
+                        />
                       ))}
                     </div>
                   </div>
