@@ -1,35 +1,12 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
+import { Play, Pause, Square } from 'lucide-react'
 
 interface VoiceReaderProps {
   text: string
 }
 
-function PlayIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  )
-}
-
-function PauseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-      <rect x="6" y="4" width="4" height="16" />
-      <rect x="14" y="4" width="4" height="16" />
-    </svg>
-  )
-}
-
-function StopIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-    </svg>
-  )
-}
 
 export function VoiceReader({ text }: VoiceReaderProps) {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -124,7 +101,7 @@ export function VoiceReader({ text }: VoiceReaderProps) {
           }}
           title={isPlaying ? 'Pause' : isPaused ? 'Resume' : 'Play'}
         >
-          {isPlaying ? <PauseIcon /> : <PlayIcon />}
+          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
         </button>
 
         {(isPlaying || isPaused) && (
@@ -145,7 +122,7 @@ export function VoiceReader({ text }: VoiceReaderProps) {
             }}
             title="Stop"
           >
-            <StopIcon />
+            <Square size={14} />
           </button>
         )}
       </div>

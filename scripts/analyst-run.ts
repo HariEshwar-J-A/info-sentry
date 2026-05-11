@@ -85,30 +85,36 @@ async function telegramApi(method: string, body: Record<string, unknown>, retrie
   }
 }
 
-async function postSummaryToTelegram(
+// Batch threshold: post individual messages when ≤ this many articles,
+// otherwise post a single digest at the end.
+const BATCH_THRESHOLD = parseInt(process.env["ANALYST_BATCH_THRESHOLD"] ?? "3", 10);
+
+interface CompletedSummary {
+  article: { title: string; url: string };
+  summary: { summaryId: string; keyTopics: string[]; sentimentScore: number; relevanceScore: number };
+  content: string | null;
+}
+
+async function postSingleSummary(
   threadId: number | undefined,
-  article: { title: string; url: string },
-  summary: { summaryId: string; keyTopics: string[]; sentimentScore: number; relevanceScore: number },
-  fullContent: string | null,
+  { article, summary, content }: CompletedSummary,
 ): Promise<void> {
-  const sentiment = summary.sentimentScore > 0.3 ? "🟢" : summary.sentimentScore < -0.3 ? "🔴" : "🟡";
+  const sentimentDot = summary.sentimentScore > 0.3 ? "+" : summary.sentimentScore < -0.3 ? "-" : "~";
   const sections: string[] = [
-    `${sentiment} <b>${escHtml(article.title)}</b>`,
+    `[${sentimentDot}] <b>${escHtml(article.title)}</b>`,
     "",
   ];
 
-  if (fullContent?.length) {
-    sections.push("<b>📝 Summary:</b>");
-    for (const para of fullContent.split("\n").filter((p) => p.trim()).slice(0, 5)) {
-      sections.push(para.slice(0, 800));
+  if (content?.length) {
+    for (const para of content.split("\n").filter((p) => p.trim()).slice(0, 4)) {
+      sections.push(para.slice(0, 600));
     }
     sections.push("");
   }
 
-  sections.push("<b>📊 Metadata:</b>");
   sections.push(`Topics: ${summary.keyTopics.join(", ")}`);
   sections.push(`Relevance: ${(summary.relevanceScore * 100).toFixed(0)}%`);
-  sections.push(`<a href="${encodeURI(article.url)}">🔗 Source</a>`);
+  sections.push(`<a href="${encodeURI(article.url)}">Source</a>`);
 
   const text = sections.join("\n");
   const chatId = threadId ? SUPERGROUP_ID : ADMIN_ID;
@@ -117,17 +123,43 @@ async function postSummaryToTelegram(
 
   const keyboard = {
     inline_keyboard: [[
-      { text: "👍 Relevant", callback_data: `like_summary_${summary.summaryId}` },
-      { text: "👎 Not for me", callback_data: `dislike_summary_${summary.summaryId}` },
+      { text: "Relevant", callback_data: `like_summary_${summary.summaryId}` },
+      { text: "Not for me", callback_data: `dislike_summary_${summary.summaryId}` },
     ]],
   };
 
   const MAX_LEN = 4096;
-  if (text.length > MAX_LEN) {
-    await telegramApi("sendMessage", { ...base, text: text.slice(0, MAX_LEN - 3) + "...", reply_markup: keyboard });
-  } else {
-    await telegramApi("sendMessage", { ...base, text, reply_markup: keyboard });
+  const msg = text.length > MAX_LEN ? text.slice(0, MAX_LEN - 3) + "..." : text;
+  await telegramApi("sendMessage", { ...base, text: msg, reply_markup: keyboard });
+}
+
+async function postBatchDigest(
+  threadId: number | undefined,
+  items: CompletedSummary[],
+): Promise<void> {
+  // Sort by relevance descending, take top items that fit in one message
+  const sorted = [...items].sort((a, b) => b.summary.relevanceScore - a.summary.relevanceScore);
+
+  const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const lines: string[] = [
+    `<b>News Digest</b> — ${escHtml(dateStr)} (${items.length} articles)`,
+    "",
+  ];
+
+  for (const item of sorted.slice(0, 8)) {
+    const rel = Math.round(item.summary.relevanceScore * 100);
+    const snippet = item.content?.split("\n").find(p => p.trim().length > 20)?.slice(0, 200) ?? "";
+    lines.push(`<b><a href="${encodeURI(item.article.url)}">${escHtml(item.article.title)}</a></b> (${rel}%)`);
+    if (snippet) lines.push(escHtml(snippet) + (snippet.length >= 200 ? "…" : ""));
+    if (item.summary.keyTopics.length > 0) lines.push(`<i>${escHtml(item.summary.keyTopics.slice(0, 3).join(", "))}</i>`);
+    lines.push("");
   }
+
+  const text = lines.join("\n").slice(0, 4096);
+  const chatId = threadId ? SUPERGROUP_ID : ADMIN_ID;
+  const base: Record<string, unknown> = { chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true };
+  if (threadId) base["message_thread_id"] = threadId;
+  await telegramApi("sendMessage", { ...base, text });
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -174,6 +206,9 @@ async function main(): Promise<void> {
 
   console.log(`[analyst] ${articles.length} SCRAPED articles to analyze`);
 
+  const useBatch = articles.length > BATCH_THRESHOLD;
+  const completedSummaries: CompletedSummary[] = [];
+
   let processed = 0;
   let stoppedForKeyLimit = false;
   for (const article of articles) {
@@ -198,7 +233,16 @@ async function main(): Promise<void> {
         select: { content: true },
       });
 
-      await postSummaryToTelegram(mainNewsThreadId, article, result, summaryRecord?.content ?? null);
+      const completed: CompletedSummary = { article, summary: result, content: summaryRecord?.content ?? null };
+
+      if (useBatch) {
+        // Collect for end-of-run digest
+        completedSummaries.push(completed);
+      } else {
+        // Post immediately for small batches
+        await postSingleSummary(mainNewsThreadId, completed);
+      }
+
       await db.article.update({ where: { id: article.id }, data: { status: "SUMMARIZED", analyzedAt: new Date() } });
       processed++;
       console.log(`[analyst] Done: ${article.title}`);
@@ -240,6 +284,16 @@ async function main(): Promise<void> {
       }
       console.error(`[analyst] Failed: ${article.title}`, err);
       await db.article.update({ where: { id: article.id }, data: { status: "FAILED" } }).catch(() => {});
+    }
+  }
+
+  // Post batch digest if we collected summaries
+  if (completedSummaries.length > 0) {
+    try {
+      await postBatchDigest(mainNewsThreadId, completedSummaries);
+      console.log(`[analyst] Posted batch digest for ${completedSummaries.length} articles`);
+    } catch (err) {
+      console.warn(`[analyst] Batch digest failed: ${(err as Error).message}`);
     }
   }
 

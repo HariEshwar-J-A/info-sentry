@@ -6,7 +6,7 @@
         db-up db-down db-reset db-generate db-migrate db-seed db-topics \
         db-shell db-logs docker-install \
         pipeline scout github health budget bot logs help \
-        brief decay youtube
+        brief weekly decay youtube
 
 # ── Service lifecycle ─────────────────────────────────────────────────────────
 dev:      ## Start DB + all app services in foreground (Ctrl+C kills everything)
@@ -93,6 +93,9 @@ youtube:  ## Scan YouTube channels + generate video summaries
 
 brief:    ## Send personalized daily content brief to Telegram
 	npx tsx scripts/daily-brief.ts
+
+weekly:   ## Send weekly intelligence digest to Telegram (run Sundays)
+	npx tsx scripts/weekly-digest.ts
 
 decay:    ## Apply 10% score decay to interests idle for ≥14 days
 	npx tsx scripts/interest-decay.ts --apply
