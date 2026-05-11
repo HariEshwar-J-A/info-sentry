@@ -3,6 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { MessageSquare, X } from 'lucide-react'
 
 interface Message {
   id: string
@@ -127,7 +128,7 @@ export function ArticleChatPanel({ articleId, articleTitle, hasExistingInsight =
           transition: 'transform 0.2s',
         }}
       >
-        <span style={{ fontSize: '20px' }}>{open ? '✕' : '💬'}</span>
+        {open ? <X size={18} /> : <MessageSquare size={18} />}
         {saved && (
           <span style={{
             position: 'absolute', top: '2px', right: '2px', width: '12px', height: '12px',
@@ -158,7 +159,9 @@ export function ArticleChatPanel({ articleId, articleTitle, hasExistingInsight =
           <div style={{ flex: 1, overflowY: 'auto', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {messages.length === 0 && (
               <div style={{ color: '#555', fontSize: '13px', textAlign: 'center', marginTop: '40px' }}>
-                <div style={{ fontSize: '24px', marginBottom: '8px' }}>💭</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                  <MessageSquare size={24} color="#333" />
+                </div>
                 Share your thoughts about this article
               </div>
             )}

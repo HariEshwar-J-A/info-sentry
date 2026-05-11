@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
@@ -56,8 +57,10 @@ const statusColor: Record<string, string> = {
 const statusVariant: Record<string, 'positive' | 'negative' | 'neutral' | 'accent' | 'default'> = {
   PENDING: 'neutral', CORRECT: 'positive', INCORRECT: 'negative', PARTIALLY_CORRECT: 'accent', EXPIRED: 'default',
 }
-const verdictIcon: Record<string, string> = {
-  CORRECT: '✅', INCORRECT: '❌', PARTIALLY_CORRECT: '🔶',
+const verdictIcon: Record<string, React.ReactNode> = {
+  CORRECT: <CheckCircle size={14} color="#22c55e" />,
+  INCORRECT: <XCircle size={14} color="#ef4444" />,
+  PARTIALLY_CORRECT: <AlertCircle size={14} color="#eab308" />,
 }
 
 function formatDate(iso: string | null): string {
@@ -163,10 +166,10 @@ export default function PredictionsPage() {
   }, [all, allStatusFilter, allSearch])
 
   const TABS = [
-    { id: 'all' as const,           label: '🔮 All',           badge: all.length },
-    { id: 'tracked' as const,       label: '📌 Tracked',       badge: unreadTrackedCount },
-    { id: 'verifications' as const, label: '✅ Verifications',  badge: unreadVerifiedCount },
-    { id: 'stats' as const,         label: '📊 Accuracy',       badge: 0 },
+    { id: 'all' as const,           label: 'All',           badge: all.length },
+    { id: 'tracked' as const,       label: 'Tracked',       badge: unreadTrackedCount },
+    { id: 'verifications' as const, label: 'Verifications', badge: unreadVerifiedCount },
+    { id: 'stats' as const,         label: 'Accuracy',      badge: 0 },
   ]
 
   return (
@@ -213,7 +216,6 @@ export default function PredictionsPage() {
 
             {filteredAll.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', color: '#555' }}>
-                <div style={{ fontSize: '28px', marginBottom: '10px' }}>🔮</div>
                 <div style={{ fontSize: '14px' }}>{all.length === 0 ? 'No predictions yet — run the pipeline to generate some' : 'No predictions match your filter'}</div>
               </div>
             ) : (
@@ -221,17 +223,17 @@ export default function PredictionsPage() {
                 {filteredAll.map(pred => {
                   const isOpen = expandedId === pred.id
                   const confidencePct = Math.round(pred.confidence * 100)
-                  const emoji = pred.confidence > 0.7 ? '🎯' : pred.confidence > 0.5 ? '📊' : '💭'
+                  const emoji = pred.confidence > 0.7 ? 'High' : pred.confidence > 0.5 ? 'Med' : 'Low'
                   return (
                     <div key={pred.id} style={{ backgroundColor: '#111', border: `1px solid ${statusColor[pred.status] ? statusColor[pred.status] + '33' : '#1f1f1f'}`, borderRadius: '12px', overflow: 'hidden' }}>
                       <div style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '12px' }} onClick={() => setExpandedId(isOpen ? null : pred.id)}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '12px', color: statusColor[pred.status] ?? '#8a8a8a', fontWeight: 700 }}>
-                              {verdictIcon[pred.status] ?? '⏳'} {pred.status.replace('_', ' ')}
+                            <span style={{ fontSize: '12px', color: statusColor[pred.status] ?? '#8a8a8a', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              {verdictIcon[pred.status] ?? null} {pred.status.replace('_', ' ')}
                             </span>
                             <span style={{ fontSize: '11px', color: '#555' }}>{emoji} {confidencePct}% · {pred.timeHorizon ?? 'no horizon'}</span>
-                            {pred.trackedByUser && <span style={{ fontSize: '10px', color: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '4px', padding: '1px 6px' }}>📌 tracked</span>}
+                            {pred.trackedByUser && <span style={{ fontSize: '10px', color: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '4px', padding: '1px 6px' }}>tracked</span>}
                             <span style={{ fontSize: '10px', color: '#444' }}>{formatDate(pred.createdAt)}</span>
                           </div>
                           <div style={{ fontSize: '13px', color: '#d0d0d0', lineHeight: '1.5', marginBottom: '6px' }}>{pred.content}</div>
@@ -269,7 +271,7 @@ export default function PredictionsPage() {
               {(['all', 'PENDING', 'resolved'] as const).map(s => (
                 <button key={s} onClick={() => setStatusFilter(s)}
                   style={{ padding: '5px 12px', borderRadius: '6px', border: `1px solid ${statusFilter === s ? '#6366f1' : '#2a2a2a'}`, background: statusFilter === s ? 'rgba(99,102,241,0.12)' : 'none', color: statusFilter === s ? '#6366f1' : '#8a8a8a', cursor: 'pointer', fontSize: '12px', fontWeight: 500, transition: 'all 0.15s' }}>
-                  {s === 'all' ? 'All' : s === 'PENDING' ? '⏳ Pending' : '✓ Resolved'}
+                  {s === 'all' ? 'All' : s === 'PENDING' ? 'Pending' : 'Resolved'}
                 </button>
               ))}
               <span style={{ fontSize: '12px', color: '#555', marginLeft: '4px' }}>
@@ -279,7 +281,6 @@ export default function PredictionsPage() {
 
             {filteredTracked.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
-                <div style={{ fontSize: '32px', marginBottom: '12px' }}>🎯</div>
                 <div style={{ fontSize: '14px' }}>{tracked.length === 0 ? 'No tracked predictions yet' : 'No predictions match your filters'}</div>
                 {tracked.length === 0 && <div style={{ fontSize: '12px', color: '#444', marginTop: '6px' }}>Track predictions from article pages</div>}
               </div>
@@ -341,7 +342,6 @@ export default function PredictionsPage() {
           <div>
             {verified.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
-                <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔮</div>
                 <div style={{ fontSize: '14px' }}>No verified predictions yet</div>
                 <div style={{ fontSize: '12px', color: '#444', marginTop: '6px' }}>
                   Track predictions and the verifier agent will check them every 6 hours
@@ -356,7 +356,7 @@ export default function PredictionsPage() {
                     <div key={pred.id} style={{ backgroundColor: '#111', border: `1px solid ${verdictColor}22`, borderRadius: '14px', overflow: 'hidden' }}>
                       {/* Header strip */}
                       <div style={{ backgroundColor: `${verdictColor}10`, borderBottom: `1px solid ${verdictColor}22`, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '18px' }}>{verdictIcon[pred.status] ?? '●'}</span>
+                        <span style={{ display: 'flex', alignItems: 'center' }}>{verdictIcon[pred.status] ?? null}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: '12px', fontWeight: 700, color: verdictColor, letterSpacing: '0.04em' }}>
                             {pred.status.replace(/_/g, ' ')}

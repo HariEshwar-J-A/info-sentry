@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { Star, GitFork, Clock } from 'lucide-react'
 
 export interface GitHubRepoData {
   id: string
@@ -113,7 +114,7 @@ export function RepoCard({ repo, onViewed }: { repo: GitHubRepoData; onViewed?: 
           <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#1a1a1a', borderRadius: '6px', padding: '4px 8px' }}>
-                <span style={{ fontSize: '13px' }}>⭐</span>
+                <Star size={12} color="#eab308" fill="#eab308" />
                 <span style={{ fontSize: '13px', fontWeight: 700, color: '#eab308' }}>{fmtNum(repo.stars)}</span>
               </div>
               {repo.starDelta && repo.starDelta > 0 && (
@@ -132,12 +133,13 @@ export function RepoCard({ repo, onViewed }: { repo: GitHubRepoData; onViewed?: 
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '12px', color: '#555' }}>🔀</span>
+            <GitFork size={12} color="#555" />
             <span style={{ fontSize: '12px', color: '#8a8a8a' }}>{fmtNum(repo.forks)}</span>
           </div>
           {repo.lastPushed && (
-            <div style={{ fontSize: '12px', color: '#555' }}>
-              🕐 {timeAgo(repo.lastPushed)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Clock size={12} color="#555" />
+              <span style={{ fontSize: '12px', color: '#555' }}>{timeAgo(repo.lastPushed)}</span>
             </div>
           )}
         </div>

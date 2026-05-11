@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { Star, GitFork, Clock } from 'lucide-react'
 
 interface RepoDetail {
   id: string
@@ -131,14 +132,14 @@ export default function RepoDetailPage() {
           {/* Stats row */}
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '16px' }}>⭐</span>
+              <Star size={16} color="#eab308" fill="#eab308" />
               <span style={{ fontSize: '16px', fontWeight: 700, color: '#eab308' }}>{fmtNum(repo.stars)}</span>
               {repo.starDelta > 0 && (
                 <span style={{ fontSize: '12px', color: '#22c55e', fontWeight: 700 }}>+{fmtNum(repo.starDelta)}</span>
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <span style={{ fontSize: '14px', color: '#555' }}>🔀</span>
+              <GitFork size={14} color="#555" />
               <span style={{ fontSize: '14px', color: '#8a8a8a' }}>{fmtNum(repo.forks)}</span>
             </div>
             {repo.language && (
@@ -148,7 +149,10 @@ export default function RepoDetailPage() {
               </div>
             )}
             {repo.lastPushed && (
-              <span style={{ fontSize: '13px', color: '#555' }}>🕐 pushed {timeAgo(repo.lastPushed)}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Clock size={13} color="#555" />
+                <span style={{ fontSize: '13px', color: '#555' }}>pushed {timeAgo(repo.lastPushed)}</span>
+              </div>
             )}
             <span style={{ fontSize: '13px', color: '#444' }}>found {timeAgo(repo.scrapedAt)}</span>
           </div>
@@ -180,7 +184,7 @@ export default function RepoDetailPage() {
           </div>
         ) : (
           <div style={{ marginBottom: '32px', backgroundColor: '#0d0d0d', border: '1px dashed #2a2a2a', borderRadius: '12px', padding: '20px 24px', color: '#555', fontSize: '13px' }}>
-            No AI analysis yet — run the ⭐ GitHub scan from the Topics page to generate one.
+            No AI analysis yet — run the GitHub scan from the Topics page to generate one.
           </div>
         )}
 

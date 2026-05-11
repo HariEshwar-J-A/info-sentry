@@ -322,8 +322,8 @@ export default function SourcesPage() {
 
   const FILTERS: { key: FilterType; label: string }[] = [
     { key: 'all', label: 'All' },
-    { key: 'google', label: '📰 Google News' },
-    { key: 'github', label: '⭐ GitHub' },
+    { key: 'google', label: 'Google News' },
+    { key: 'github', label: 'GitHub' },
     { key: 'WEB', label: 'Web/Blog' },
     { key: 'RSS', label: 'RSS' },
   ]

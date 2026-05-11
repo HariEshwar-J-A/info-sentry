@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
+import { TrendingUp, TrendingDown, Minus, ThumbsUp, ThumbsDown, ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { SentimentBar } from './SentimentBar'
@@ -12,8 +13,10 @@ interface ArticleCardProps {
   onFeedback?: (articleId: string, type: 'like' | 'dislike') => void
 }
 
-const SENTIMENT_EMOJI: Record<string, string> = {
-  positive: '🎉', curious: '🤔', concerned: '😟', excited: '🎉', skeptical: '🤨', neutral: '😐', negative: '😟',
+function SentimentIcon({ sentiment }: { sentiment: string }) {
+  if (sentiment === 'positive' || sentiment === 'excited') return <TrendingUp size={14} color="#22c55e" />
+  if (sentiment === 'concerned' || sentiment === 'negative') return <TrendingDown size={14} color="#ef4444" />
+  return <Minus size={14} color="#8a8a8a" />
 }
 
 function formatTimeAgo(date: Date | string): string {
@@ -78,8 +81,8 @@ export function ArticleCard({ article, onFeedback }: ArticleCardProps) {
           <Badge key={topic} variant="accent" size="sm">{topic}</Badge>
         ))}
         {insightSentiment && (
-          <span title={`You felt: ${insightSentiment}`} style={{ marginLeft: '4px', fontSize: '14px' }}>
-            {SENTIMENT_EMOJI[insightSentiment] ?? '💬'}
+          <span title={`You felt: ${insightSentiment}`} style={{ marginLeft: '4px', display: 'inline-flex', alignItems: 'center' }}>
+            <SentimentIcon sentiment={insightSentiment} />
           </span>
         )}
       </div>
@@ -138,21 +141,15 @@ export function ArticleCard({ article, onFeedback }: ArticleCardProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <a href={article.url} target="_blank" rel="noopener noreferrer"
             style={{ color: '#555', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: '4px' }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
+            <ExternalLink size={12} />
           </a>
           <button onClick={() => handleFeedback('like')} disabled={!!feedbackGiven}
             style={{ background: 'none', border: 'none', cursor: feedbackGiven ? 'default' : 'pointer', color: feedbackGiven === 'like' ? '#22c55e' : '#555', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Relevant">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z" /><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
-            </svg>
+            <ThumbsUp size={14} />
           </button>
           <button onClick={() => handleFeedback('dislike')} disabled={!!feedbackGiven}
             style={{ background: 'none', border: 'none', cursor: feedbackGiven ? 'default' : 'pointer', color: feedbackGiven === 'dislike' ? '#ef4444' : '#555', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center' }} title="Not relevant">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3z" /><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" />
-            </svg>
+            <ThumbsDown size={14} />
           </button>
         </div>
       </div>

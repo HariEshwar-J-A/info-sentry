@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect } from 'react'
+import { ChevronLeft, Clock } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 import { ChatWindow } from '@/components/chat/ChatWindow'
 import { ChatInput } from '@/components/chat/ChatInput'
@@ -168,7 +169,9 @@ export default function ChatPage() {
             <div style={{ display: 'flex', gap: '6px' }}>
               <button onClick={() => setSidebarOpen(!sidebarOpen)}
                 style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: sidebarOpen ? '#1a1a1a' : 'none', color: '#8a8a8a', cursor: 'pointer', fontSize: '12px' }}>
-                {sidebarOpen ? '← Hide' : '⏳ History'}
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {sidebarOpen ? <><ChevronLeft size={12} /> Hide</> : <><Clock size={12} /> History</>}
+                </span>
               </button>
               {messages.length > 0 && (
                 <button onClick={newChat}

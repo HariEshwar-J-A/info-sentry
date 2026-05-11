@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "lucide-react": "^1.14.0",
     "next": "^15.3.3",
     "openai": "^4.80.0",
     "react": "^19.0.0",

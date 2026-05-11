@@ -314,7 +314,7 @@ function DiscoveryPanel({ interestId, onDone }: { interestId: string; onDone: ()
     <div style={{ border: '1px solid rgba(99,102,241,0.3)', borderRadius: '10px', overflow: 'hidden' }}>
       <div style={{ padding: '10px 14px', backgroundColor: 'rgba(99,102,241,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: '12px', fontWeight: 600, color: '#a5b4fc' }}>
-          {running ? '🔍 Discovering sources…' : `✅ Discovery complete`}
+          {running ? 'Discovering sources…' : 'Discovery complete'}
         </span>
         {!running && (
           <button onClick={onDone} style={{ fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Done</button>
@@ -405,7 +405,7 @@ function SourcesPanel({ interestId }: { interestId: string }) {
           style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: atLimit ? '#1a1a1a' : 'rgba(99,102,241,0.15)', color: atLimit ? '#333' : '#6366f1', cursor: atLimit ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
           title={atLimit ? 'Hard limit of 50 sources reached' : 'Auto-discover reliable sources from the internet'}
         >
-          🔍 {atLimit ? 'Limit reached' : 'Discover Sources'}
+          {atLimit ? 'Limit reached' : 'Discover Sources'}
         </button>
       </div>
 
@@ -413,8 +413,8 @@ function SourcesPanel({ interestId }: { interestId: string }) {
       {sources.length > 0 && (
         <div style={{ display: 'flex', gap: '4px', marginBottom: '4px' }}>
           <button style={filterTabStyle('all')} onClick={() => setFilter('all')}>All ({sources.length})</button>
-          <button style={filterTabStyle('news')} onClick={() => setFilter('news')}>📰 News ({newsSources.length})</button>
-          <button style={filterTabStyle('github')} onClick={() => setFilter('github')}>⭐ GitHub ({githubSources.length})</button>
+          <button style={filterTabStyle('news')} onClick={() => setFilter('news')}>News ({newsSources.length})</button>
+          <button style={filterTabStyle('github')} onClick={() => setFilter('github')}>GitHub ({githubSources.length})</button>
         </div>
       )}
 
@@ -429,10 +429,10 @@ function SourcesPanel({ interestId }: { interestId: string }) {
       {loading ? (
         <div style={{ color: '#555', fontSize: '12px', padding: '8px 0' }}>Loading sources…</div>
       ) : sources.length === 0 ? (
-        <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>No sources yet. Click "🔍 Discover Sources" to auto-find reliable domains, or add one manually below.</div>
+        <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>No sources yet. Click "Discover Sources" to auto-find reliable domains, or add one manually below.</div>
       ) : visible.length === 0 ? (
         <div style={{ color: '#444', fontSize: '12px', padding: '4px 0' }}>
-          {filter === 'github' ? 'No GitHub sources yet — run "⭐ GitHub" scan above.' : 'No news sources yet.'}
+          {filter === 'github' ? 'No GitHub sources yet — run "GitHub" scan above.' : 'No news sources yet.'}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -650,7 +650,7 @@ function InterestCard({ interest, onRemove, onRunCreated, onToggleTracking }: {
           )}
           <button onClick={() => { setShowSources(s => !s) }}
             style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${showSources ? '#6366f1' : '#2a2a2a'}`, background: showSources ? 'rgba(99,102,241,0.1)' : 'none', color: showSources ? '#a5b4fc' : '#8a8a8a', cursor: 'pointer', fontSize: '11px', fontWeight: 500 }}>
-            📡 Sources ({interest._count.sources})
+            Sources ({interest._count.sources})
           </button>
           <button onClick={() => void updateTracking({ trackNews: !interest.trackNews })}
             style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: 'none', color: interest.trackNews ? '#6366f1' : '#555', cursor: 'pointer', fontSize: '11px' }}>

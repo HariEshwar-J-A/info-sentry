@@ -2,6 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
+import { Lock } from 'lucide-react'
 
 const PORTFOLIO_HOME = 'https://harieshwar.dev'
 
@@ -17,7 +18,7 @@ export default function UnauthorizedLoginPage() {
         </div>
 
         <div style={{ padding: '28px 24px', backgroundColor: '#111', border: '1px solid #2a2a2a', borderRadius: '14px', marginBottom: '24px' }}>
-          <div style={{ fontSize: '40px', marginBottom: '12px' }} aria-hidden>🔒</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}><Lock size={40} color="#555" /></div>
           <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#f0f0f0', margin: '0 0 10px', lineHeight: 1.35 }}>
             Unable to sign in
           </h1>

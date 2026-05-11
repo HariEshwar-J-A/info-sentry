@@ -91,7 +91,7 @@ function GitHubFeedClient() {
           onClick={() => { void fetchRepos(); setNewCount(0) }}
           style={{ marginBottom: '16px', padding: '10px 16px', backgroundColor: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
         >
-          <span style={{ fontSize: '13px', color: '#a5b4fc' }}>⭐ {newCount} new repos available</span>
+          <span style={{ fontSize: '13px', color: '#a5b4fc' }}>{newCount} new repos available</span>
           <span style={{ fontSize: '12px', color: '#6366f1', fontWeight: 600 }}>Refresh →</span>
         </div>
       )}
@@ -111,10 +111,10 @@ function GitHubFeedClient() {
             onChange={e => setSort(e.target.value as SortMode)}
             style={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#e0e0e0', fontSize: '13px', padding: '8px 10px', cursor: 'pointer', outline: 'none' }}
           >
-            <option value="trending">🔥 Trending (star growth)</option>
-            <option value="stars">⭐ Most Stars</option>
-            <option value="forks">🔀 Most Forks</option>
-            <option value="pushed">🕐 Recently Pushed</option>
+            <option value="trending">Trending (star growth)</option>
+            <option value="stars">Most Stars</option>
+            <option value="forks">Most Forks</option>
+            <option value="pushed">Recently Pushed</option>
             <option value="recent">🆕 Recently Found</option>
           </select>
           {unreadCount > 0 && (
@@ -186,15 +186,13 @@ function GitHubFeedClient() {
       {/* Grid */}
       {loading ? (
         <div style={{ color: '#555', fontSize: '14px', padding: '60px 0', textAlign: 'center' }}>
-          <div style={{ fontSize: '28px', marginBottom: '12px' }}>⭐</div>
           Loading GitHub repositories…
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>◎</div>
           <div style={{ fontSize: '14px' }}>No repositories found</div>
           <div style={{ fontSize: '12px', marginTop: '6px', color: '#444' }}>
-            Run "⭐ GitHub Scan" on a topic in the Topics page to populate this feed
+            Run "GitHub Scan" on a topic in the Topics page to populate this feed
           </div>
         </div>
       ) : (

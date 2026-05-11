@@ -1,25 +1,26 @@
 'use client'
 
 import React from 'react'
+import { Newspaper, TrendingUp, Sparkles, Globe } from 'lucide-react'
 
 const suggestions = [
   {
-    icon: '📰',
+    icon: <Newspaper size={18} color="#8a8a8a" />,
     title: 'Top stories today',
     prompt: 'What are the most important news stories from the last 24 hours?',
   },
   {
-    icon: '📈',
+    icon: <TrendingUp size={18} color="#8a8a8a" />,
     title: 'Market & tech trends',
     prompt: 'What technology and market trends are emerging from recent articles?',
   },
   {
-    icon: '🔮',
+    icon: <Sparkles size={18} color="#8a8a8a" />,
     title: 'Active predictions',
     prompt: 'What predictions have been made recently and how confident are they?',
   },
   {
-    icon: '🌍',
+    icon: <Globe size={18} color="#8a8a8a" />,
     title: 'Geopolitical overview',
     prompt: 'Give me a geopolitical summary based on recent news coverage.',
   },
@@ -50,11 +51,10 @@ export function ChatSuggestions({ onSelect }: ChatSuggestionsProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: '22px',
           marginBottom: '16px',
         }}
       >
-        ◉
+        <Sparkles size={22} color="#fff" />
       </div>
       <h2
         style={{
@@ -111,7 +111,7 @@ export function ChatSuggestions({ onSelect }: ChatSuggestionsProps) {
               ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = '#111111'
             }}
           >
-            <div style={{ fontSize: '18px', marginBottom: '6px' }}>{s.icon}</div>
+            <div style={{ marginBottom: '6px' }}>{s.icon}</div>
             <div style={{ fontSize: '13px', fontWeight: 500, color: '#e0e0e0', marginBottom: '3px' }}>
               {s.title}
             </div>

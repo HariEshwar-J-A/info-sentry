@@ -248,7 +248,7 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
               <span style={{ fontSize: '12px', color: '#8a8a8a', minWidth: '90px' }}>Sentiment</span>
               {(['all', 'positive', 'neutral', 'negative'] as SentimentFilter[]).map((s) => (
                 <Badge key={s} variant={sentimentFilter === s ? 'accent' : 'default'} size="sm" onClick={() => setSentimentFilter(s)}>
-                  {s === 'positive' ? '🟢 Positive' : s === 'negative' ? '🔴 Negative' : s === 'neutral' ? '🟡 Neutral' : 'All'}
+                  {s === 'positive' ? 'Positive' : s === 'negative' ? 'Negative' : s === 'neutral' ? 'Neutral' : 'All'}
                 </Badge>
               ))}
             </div>

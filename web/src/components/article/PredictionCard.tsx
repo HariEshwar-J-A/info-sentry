@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { Bookmark } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 
@@ -82,7 +83,7 @@ export function PredictionCard({ prediction: initial }: PredictionCardProps) {
         </Badge>
         {pred.timeHorizon && <Badge variant="default" size="sm">{pred.timeHorizon}</Badge>}
         {pred.trackedByUser && (
-          <Badge variant="accent" size="sm">📌 Tracked</Badge>
+          <Badge variant="accent" size="sm"><span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}><Bookmark size={10} /> Tracked</span></Badge>
         )}
         {pred.dueDate && (
           <Badge variant="default" size="sm">
@@ -123,7 +124,7 @@ export function PredictionCard({ prediction: initial }: PredictionCardProps) {
                 border: '1px solid #2a2a2a', background: 'none', color: '#8a8a8a',
                 cursor: tracking ? 'wait' : 'pointer', transition: 'all 0.15s',
               }}>
-              {tracking ? 'Tracking…' : '📌 Track'}
+              {tracking ? 'Tracking…' : 'Track'}
             </button>
           )}
           {pred.trackedByUser && (
