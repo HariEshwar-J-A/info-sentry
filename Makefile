@@ -6,7 +6,8 @@
         db-up db-down db-reset db-generate db-migrate db-seed db-topics \
         db-shell db-logs docker-install \
         pipeline scout github health budget bot logs help \
-        brief weekly decay youtube source-quality
+        brief weekly decay youtube source-quality \
+        web-restart tunnel-restart web-logs tunnel-logs
 
 # ── Service lifecycle ─────────────────────────────────────────────────────────
 dev:      ## Start DB + all app services in foreground (Ctrl+C kills everything)
@@ -23,6 +24,27 @@ restart:  ## Restart everything
 
 status:   ## Show status for all services, containers, and ports
 	@./scripts/manage.sh status
+	@echo ""
+	@echo "=== LaunchAgents ==="
+	@launchctl list | grep infosentry | awk '{printf "  %-40s  pid=%-8s exit=%s\n", $$3, $$1, $$2}'
+	@echo ""
+	@echo "=== Endpoints ==="
+	@curl -s -o /dev/null -w "  localhost:3001  %{http_code}\n" http://localhost:3001/login 2>/dev/null || echo "  localhost:3001  DOWN"
+	@curl -s -o /dev/null -w "  sentry.harieshwar.dev  %{http_code}\n" https://sentry.harieshwar.dev/login 2>/dev/null || echo "  sentry.harieshwar.dev  DOWN"
+
+web-restart: ## Restart the web server via launchd
+	@launchctl unload ~/Library/LaunchAgents/com.infosentry.web.plist 2>/dev/null; \
+	 launchctl load  ~/Library/LaunchAgents/com.infosentry.web.plist && echo "Web server reloading…"
+
+tunnel-restart: ## Restart the Cloudflare tunnel via launchd
+	@launchctl unload ~/Library/LaunchAgents/com.infosentry.cloudflared.plist 2>/dev/null; \
+	 launchctl load  ~/Library/LaunchAgents/com.infosentry.cloudflared.plist && echo "Tunnel reloading…"
+
+web-logs: ## Tail the web server log
+	@tail -f ~/.openclaw/logs/infosentry-web.log
+
+tunnel-logs: ## Tail the Cloudflare tunnel log
+	@tail -f ~/.openclaw/logs/infosentry-cloudflared.log
 
 # ── First-time setup ──────────────────────────────────────────────────────────
 setup:    ## Install dependencies and generate Prisma client
