@@ -39,6 +39,7 @@ model Interest {
   trackNews      Boolean  @default(true)
   trackGithub    Boolean  @default(false)
   searchKeywords String[] @default([])
+  lastEngagedAt  DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -191,20 +192,44 @@ enum PredictionStatus {
 
 // ─── ArticleInsight (user chat metadata per article) ────────
 model ArticleInsight {
-  id            String   @id @default(cuid())
-  articleId     String   @unique
+  id            String    @id @default(cuid())
+  articleId     String    @unique
   userId        String
   chatSummary   String?
   userSentiment String?
-  keywords      String[] @default([])
+  keywords      String[]  @default([])
   rawChatLog    Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  bookmarkedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([userId, bookmarkedAt])
   @@index([articleId])
+}
+
+// ─── UserFeedback (signal history) ──────────────────────────
+model UserFeedback {
+  id        String         @id @default(cuid())
+  userId    String
+  articleId String
+  signal    FeedbackSignal
+  topics    String[]       @default([])
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, signal])
+  @@index([articleId])
+}
+
+enum FeedbackSignal {
+  LIKE
+  DISLIKE
+  BOOKMARK
+  UNBOOKMARK
+  SKIP
 }
 
 // ─── WebChatSession (persistent web AI chat) ────────────────

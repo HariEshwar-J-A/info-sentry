@@ -2,18 +2,20 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { Bookmark, RefreshCw, Clock } from 'lucide-react'
 import { ArticleCard } from './ArticleCard'
 import { Badge } from '@/components/ui/Badge'
 import type { ArticleWithSummary } from '@/lib/feed'
 
 interface FeedClientProps {
   articles: ArticleWithSummary[]
+  userTopics?: string[]
 }
 
 type SortMode = 'relevance' | 'date' | 'sentiment'
 type SentimentFilter = 'all' | 'positive' | 'neutral' | 'negative'
 
-export function FeedClient({ articles: initialArticles }: FeedClientProps) {
+export function FeedClient({ articles: initialArticles, userTopics }: FeedClientProps) {
   const searchParams = useSearchParams()
   const [articles, setArticles] = useState<ArticleWithSummary[]>(initialArticles)
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
@@ -25,6 +27,8 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
   const [isSearching, setIsSearching] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [showUnreadOnly, setShowUnreadOnly] = useState(false)
+  const [showBookmarked, setShowBookmarked] = useState(false)
+  const [bookmarkedArticles, setBookmarkedArticles] = useState<ArticleWithSummary[]>([])
   const [hours48, setHours48] = useState(false)
   const [newCount, setNewCount] = useState(0)
   const knownIdsRef = useRef(new Set(initialArticles.map((a) => a.id)))
@@ -79,6 +83,15 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
 
   // Reload when 48h toggle changes
   useEffect(() => { void loadAll() }, [loadAll])
+
+  // Fetch bookmarked articles when bookmark tab is opened
+  useEffect(() => {
+    if (!showBookmarked) return
+    fetch('/api/feed?filter=bookmarked')
+      .then(r => r.json())
+      .then(d => setBookmarkedArticles(d as ArticleWithSummary[]))
+      .catch(() => {})
+  }, [showBookmarked])
 
   const unreadCount = useMemo(() => articles.filter(a => !a.viewedAt).length, [articles])
 
@@ -204,16 +217,26 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
           <button
             onClick={() => setHours48(!hours48)}
             title="Toggle: last 48 hours only"
-            style={{ padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${hours48 ? '#6366f1' : '#2a2a2a'}`, background: hours48 ? 'rgba(99,102,241,0.12)' : 'none', color: hours48 ? '#6366f1' : '#8a8a8a', whiteSpace: 'nowrap' }}
+            style={{ padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${hours48 ? '#6366f1' : '#2a2a2a'}`, background: hours48 ? 'rgba(99,102,241,0.12)' : 'none', color: hours48 ? '#6366f1' : '#8a8a8a', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '5px' }}
           >
-            {hours48 ? '⏱ 48h' : '⏱ All time'}
+            <Clock size={13} />
+            {hours48 ? '48h' : 'All time'}
           </button>
 
           <button
-            onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+            onClick={() => { setShowUnreadOnly(!showUnreadOnly); setShowBookmarked(false) }}
             style={{ padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${showUnreadOnly ? '#6366f1' : '#2a2a2a'}`, background: showUnreadOnly ? 'rgba(99,102,241,0.12)' : 'none', color: showUnreadOnly ? '#6366f1' : '#8a8a8a', whiteSpace: 'nowrap' }}
           >
             {showUnreadOnly ? '● Unread' : `○ Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
+          </button>
+
+          <button
+            onClick={() => { setShowBookmarked(!showBookmarked); setShowUnreadOnly(false) }}
+            title="Bookmarked articles"
+            style={{ padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', border: `1px solid ${showBookmarked ? '#6366f1' : '#2a2a2a'}`, background: showBookmarked ? 'rgba(99,102,241,0.12)' : 'none', color: showBookmarked ? '#6366f1' : '#8a8a8a', display: 'flex', alignItems: 'center', gap: '5px' }}
+          >
+            <Bookmark size={13} fill={showBookmarked ? '#6366f1' : 'none'} />
+            Saved
           </button>
 
           <button
@@ -226,9 +249,9 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
           <button
             onClick={() => void loadAll()}
             title="Reload articles"
-            style={{ padding: '8px 12px', background: 'none', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#555', cursor: 'pointer', fontSize: '13px' }}
+            style={{ padding: '8px 12px', background: 'none', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#555', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center' }}
           >
-            ↺
+            <RefreshCw size={13} />
           </button>
         </div>
 
@@ -280,32 +303,62 @@ export function FeedClient({ articles: initialArticles }: FeedClientProps) {
         )}
       </div>
 
-      {/* Count */}
-      <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
-        {filteredArticles.length} article{filteredArticles.length !== 1 ? 's' : ''}
-        {hours48 ? ' · last 48h' : ' · all time'}
-        {showUnreadOnly ? ' · unread only' : ''}
-        {selectedTopic ? ` · topic: "${selectedTopic}"` : ''}
-        {searchInput ? ` · "${searchInput}"` : ''}
-      </div>
-
-      {/* Article grid */}
-      {filteredArticles.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>◎</div>
-          <div style={{ fontSize: '14px' }}>No articles match your filters</div>
-          {searchInput && (
-            <button onClick={() => setSearchInput('')} style={{ marginTop: '12px', fontSize: '12px', color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer' }}>
-              Clear search
-            </button>
+      {/* Bookmarks view */}
+      {showBookmarked ? (
+        <>
+          <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
+            {bookmarkedArticles.length} saved article{bookmarkedArticles.length !== 1 ? 's' : ''}
+          </div>
+          {bookmarkedArticles.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}><Bookmark size={32} color="#333" /></div>
+              <div style={{ fontSize: '14px' }}>No bookmarks yet</div>
+              <div style={{ fontSize: '12px', color: '#444', marginTop: '6px' }}>Click the bookmark icon on any article to save it</div>
+            </div>
+          ) : (
+            <div className="cards-grid">
+              {bookmarkedArticles.map((article) => (
+                <ArticleCard
+                  key={article.id}
+                  article={article}
+                  userTopics={userTopics}
+                  onBookmark={(id, bm) => {
+                    if (!bm) setBookmarkedArticles(prev => prev.filter(a => a.id !== id))
+                  }}
+                />
+              ))}
+            </div>
           )}
-        </div>
+        </>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
-          {filteredArticles.map((article) => (
-            <ArticleCard key={article.id} article={article} />
-          ))}
-        </div>
+        <>
+          {/* Count */}
+          <div style={{ marginBottom: '16px', fontSize: '12px', color: '#555' }}>
+            {filteredArticles.length} article{filteredArticles.length !== 1 ? 's' : ''}
+            {hours48 ? ' · last 48h' : ' · all time'}
+            {showUnreadOnly ? ' · unread only' : ''}
+            {selectedTopic ? ` · topic: "${selectedTopic}"` : ''}
+            {searchInput ? ` · "${searchInput}"` : ''}
+          </div>
+
+          {/* Article grid */}
+          {filteredArticles.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '80px 0', color: '#555' }}>
+              <div style={{ fontSize: '14px' }}>No articles match your filters</div>
+              {searchInput && (
+                <button onClick={() => setSearchInput('')} style={{ marginTop: '12px', fontSize: '12px', color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer' }}>
+                  Clear search
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="cards-grid">
+              {filteredArticles.map((article) => (
+                <ArticleCard key={article.id} article={article} userTopics={userTopics} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

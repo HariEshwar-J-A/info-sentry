@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getFeedArticles, searchArticlesByAI } from '@/lib/feed'
+import { getFeedArticles, getBookmarkedArticles, searchArticlesByAI } from '@/lib/feed'
 import { requireUserId } from '@/lib/user'
 
 export async function GET(request: Request) {
@@ -8,6 +8,13 @@ export async function GET(request: Request) {
   const { userId } = auth
   try {
     const url = new URL(request.url)
+    const filter = url.searchParams.get('filter')
+
+    if (filter === 'bookmarked') {
+      const articles = await getBookmarkedArticles(userId)
+      return NextResponse.json(articles)
+    }
+
     const hoursParam = url.searchParams.get('hours')
     const hours = hoursParam !== null ? parseInt(hoursParam, 10) : undefined
     const topic = url.searchParams.get('topic') ?? undefined

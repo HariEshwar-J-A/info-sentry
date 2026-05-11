@@ -21,8 +21,16 @@ export async function POST(request: Request) {
     }
 
     const scoreDelta = type === 'like' ? 0.2 : -0.1
+    const signal = type === 'like' ? 'LIKE' : 'DISLIKE'
 
-    // Update interest scores + searchKeywords feedback loop
+    // Record feedback in history table
+    if (articleId) {
+      await prisma.userFeedback.create({
+        data: { userId, articleId, signal: signal as 'LIKE' | 'DISLIKE', topics: topics ?? [] },
+      }).catch(() => {}) // non-fatal
+    }
+
+    // Update interest scores + searchKeywords + lastEngagedAt
     if (topics && topics.length > 0) {
       await Promise.all(
         topics.map(async (topic) => {
@@ -41,6 +49,7 @@ export async function POST(request: Request) {
               data: {
                 score: Math.max(0.1, Math.min(10, existing.score + scoreDelta)),
                 searchKeywords: newKeywords,
+                lastEngagedAt: new Date(),
               },
             })
           } else if (type === 'like') {
@@ -51,6 +60,7 @@ export async function POST(request: Request) {
                 score: 1.0 + scoreDelta,
                 isActive: true,
                 searchKeywords: topics.filter((t) => t !== topic).slice(0, 10),
+                lastEngagedAt: new Date(),
               },
             })
           }

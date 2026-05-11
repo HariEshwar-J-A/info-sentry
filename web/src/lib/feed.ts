@@ -23,6 +23,7 @@ export interface PredictionSnippet {
 export interface ArticleInsightSnippet {
   userSentiment: string | null
   keywords: string[]
+  bookmarkedAt: Date | null
 }
 
 export interface ArticleWithSummary {
@@ -149,7 +150,7 @@ export async function getFeedArticles(options?: {
         },
       },
       insight: {
-        select: { userSentiment: true, keywords: true },
+        select: { userSentiment: true, keywords: true, bookmarkedAt: true },
       },
     },
     orderBy:
@@ -192,7 +193,7 @@ export async function searchArticlesByAI(query: string, userId?: string): Promis
         orderBy: { confidence: 'desc' },
         select: { id: true, content: true, confidence: true, status: true, timeHorizon: true, trackedByUser: true, resolutionAnalysis: true },
       },
-      insight: { select: { userSentiment: true, keywords: true } },
+      insight: { select: { userSentiment: true, keywords: true, bookmarkedAt: true } },
     },
     orderBy: { scrapedAt: 'desc' },
     take: 40,
@@ -272,7 +273,7 @@ export async function getTopicClusters(userId?: string): Promise<TopicCluster[]>
         select: { id: true, content: true, keyTopics: true, sentimentScore: true, relevanceScore: true },
       },
       predictions: { take: 2, orderBy: { confidence: 'desc' }, select: { id: true, content: true, confidence: true, status: true, timeHorizon: true, trackedByUser: true, resolutionAnalysis: true } },
-      insight: { select: { userSentiment: true, keywords: true } },
+      insight: { select: { userSentiment: true, keywords: true, bookmarkedAt: true } },
     },
     orderBy: { scrapedAt: 'desc' },
     take: 200,
@@ -339,7 +340,7 @@ export async function getSurpriseArticles(limit = 10, userId?: string): Promise<
         source: { select: { id: true, name: true, trustScore: true } },
         summary: { select: { id: true, content: true, keyTopics: true, sentimentScore: true, relevanceScore: true } },
         predictions: { take: 2, orderBy: { confidence: 'desc' }, select: { id: true, content: true, confidence: true, status: true, timeHorizon: true, trackedByUser: true, resolutionAnalysis: true } },
-        insight: { select: { userSentiment: true, keywords: true } },
+        insight: { select: { userSentiment: true, keywords: true, bookmarkedAt: true } },
       },
       orderBy: { scrapedAt: 'desc' },
       take: 200,
@@ -373,6 +374,39 @@ export async function getSurpriseArticles(limit = 10, userId?: string): Promise<
     })
 
   return scored.sort((a, b) => b.surpriseScore - a.surpriseScore).slice(0, limit)
+}
+
+export async function getBookmarkedArticles(userId: string): Promise<ArticleWithSummary[]> {
+  const insights = await prisma.articleInsight.findMany({
+    where: { userId, bookmarkedAt: { not: null } },
+    orderBy: { bookmarkedAt: 'desc' },
+    select: { articleId: true },
+    take: 100,
+  })
+
+  if (insights.length === 0) return []
+
+  const articleIds = insights.map((i) => i.articleId)
+
+  const articles = await prisma.article.findMany({
+    where: { id: { in: articleIds }, status: { in: ['SUMMARIZED', 'POSTED'] } },
+    include: {
+      source: { select: { id: true, name: true, trustScore: true } },
+      summary: { select: { id: true, content: true, keyTopics: true, sentimentScore: true, relevanceScore: true } },
+      predictions: {
+        take: 3,
+        orderBy: { confidence: 'desc' },
+        select: { id: true, content: true, confidence: true, status: true, timeHorizon: true, trackedByUser: true, resolutionAnalysis: true, viewedAt: true },
+      },
+      insight: { select: { userSentiment: true, keywords: true, bookmarkedAt: true } },
+    },
+  })
+
+  // Return in bookmark order
+  const idToArticle = new Map(articles.map((a) => [a.id, a]))
+  return articleIds
+    .map((id) => idToArticle.get(id))
+    .filter(Boolean) as unknown as ArticleWithSummary[]
 }
 
 export async function getArticleDetail(id: string) {
