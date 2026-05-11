@@ -488,17 +488,19 @@ enum RunStatus {
 
 // ─── VideoChannel (YouTube / social media) ───────────────────
 model VideoChannel {
-  id          String        @id @default(cuid())
-  userId      String
-  platform    VideoPlatform @default(YOUTUBE)
-  channelId   String
-  channelName String
-  channelUrl  String        @unique
-  rssFeedUrl  String?
-  isActive    Boolean       @default(true)
-  lastScanned DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id               String        @id @default(cuid())
+  userId           String
+  platform         VideoPlatform @default(YOUTUBE)
+  channelId        String
+  channelName      String
+  channelUrl       String        @unique
+  rssFeedUrl       String?
+  isActive         Boolean       @default(true)
+  transcriptSource String        @default("youtube") // "youtube" | "whisper" | "none"
+  maxAgeDays       Int           @default(7)
+  lastScanned      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   videos VideoItem[]
 
