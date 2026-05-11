@@ -161,12 +161,18 @@ export function VideoCard({ video, onViewed }: { video: VideoItemData; onViewed?
         {/* Footer */}
         <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: '6px' }}>
+            <a
+              href={`/video-feed/${video.id}`}
+              style={{ fontSize: '11px', color: '#6366f1', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px', textDecoration: 'none', fontWeight: 600 }}
+            >
+              Analysis →
+            </a>
             {video.transcript && (
               <button
                 onClick={() => setShowTranscript(!showTranscript)}
                 style={{ fontSize: '11px', color: '#555', background: 'none', border: '1px solid #2a2a2a', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px' }}
               >
-                {showTranscript ? 'Hide transcript' : 'Transcript'}
+                {showTranscript ? 'Hide' : 'Transcript'}
               </button>
             )}
           </div>
