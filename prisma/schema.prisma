@@ -484,3 +484,54 @@ enum RunStatus {
   FAILED
   CANCELLED
 }
+
+// ─── VideoChannel (YouTube / social media) ───────────────────
+model VideoChannel {
+  id          String        @id @default(cuid())
+  userId      String
+  platform    VideoPlatform @default(YOUTUBE)
+  channelId   String
+  channelName String
+  channelUrl  String        @unique
+  rssFeedUrl  String?
+  isActive    Boolean       @default(true)
+  lastScanned DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  videos VideoItem[]
+
+  @@index([userId, isActive])
+  @@index([platform])
+}
+
+model VideoItem {
+  id          String      @id @default(cuid())
+  channelId   String
+  videoId     String
+  title       String
+  description String?
+  url         String      @unique
+  thumbnailUrl String?
+  duration    String?
+  publishedAt DateTime?
+  transcript  String?
+  aiSummary   String?
+  viewedAt    DateTime?
+  notifiedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  channel VideoChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, videoId])
+  @@index([channelId, publishedAt])
+  @@index([publishedAt])
+}
+
+enum VideoPlatform {
+  YOUTUBE
+  TIKTOK
+  INSTAGRAM
+  PODCAST
+}

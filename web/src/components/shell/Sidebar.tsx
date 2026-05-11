@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Rss, GitBranch, MessageSquare, Tag, Activity, Database, Target,
-  Sparkles, Settings, Bell, LogOut, Newspaper, Zap, Cog,
+  Sparkles, Settings, Bell, LogOut, Newspaper, Zap, Cog, Video,
 } from 'lucide-react'
 
 // ─── Notification Sound ────────────────────────────────────
@@ -37,6 +37,7 @@ interface NavItem { href: string; label: string; icon: React.ReactNode }
 const NAV: NavItem[] = [
   { href: '/feed',        label: 'Feed',        icon: <Rss size={18} /> },
   { href: '/github-feed', label: 'GitHub Feed',  icon: <GitBranch size={18} /> },
+  { href: '/video-feed',  label: 'Video Feed',   icon: <Video size={18} /> },
   { href: '/chat',        label: 'Chat',         icon: <MessageSquare size={18} /> },
   { href: '/topics',      label: 'Topics',       icon: <Tag size={18} /> },
   { href: '/runs',        label: 'Runs',         icon: <Activity size={18} /> },

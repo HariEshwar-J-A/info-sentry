@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Rss, GitBranch, Tag, Target, Database, MessageSquare, Sparkles, Settings, Menu, LogOut } from 'lucide-react'
+import { Rss, GitBranch, Tag, Target, Database, MessageSquare, Sparkles, Settings, Menu, LogOut, Video } from 'lucide-react'
 
 const PRIMARY_NAV = [
   { href: '/feed',        label: 'Feed',    icon: <Rss size={20} /> },
@@ -13,10 +13,11 @@ const PRIMARY_NAV = [
 ]
 
 const MORE_NAV = [
-  { href: '/sources',   label: 'Sources',     icon: <Database size={20} /> },
-  { href: '/chat',      label: 'Chat',        icon: <MessageSquare size={20} /> },
-  { href: '/surprise',  label: 'Surprise',    icon: <Sparkles size={20} /> },
-  { href: '/settings',  label: 'Settings',    icon: <Settings size={20} /> },
+  { href: '/video-feed', label: 'Videos',      icon: <Video size={20} /> },
+  { href: '/sources',    label: 'Sources',     icon: <Database size={20} /> },
+  { href: '/chat',       label: 'Chat',        icon: <MessageSquare size={20} /> },
+  { href: '/surprise',   label: 'Surprise',    icon: <Sparkles size={20} /> },
+  { href: '/settings',   label: 'Settings',    icon: <Settings size={20} /> },
 ]
 
 export function BottomNav() {
