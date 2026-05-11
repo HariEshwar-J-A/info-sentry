@@ -15,6 +15,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
+import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 import {
   assertOpenRouterKeyHasHeadroom,
   isOpenRouterKeyLimitExceeded,
@@ -134,7 +135,13 @@ async function postSummaryToTelegram(
 async function main(): Promise<void> {
   const db = getOpenClawDb();
   const interestId = parseInterestIdArg();
+  const pipelineUserId = pipelineUserIdFromEnv();
+  const articleScope = articleWhereScoped({ interestId, userId: pipelineUserId });
+
   console.log("[analyst] Starting analyst run");
+  if (pipelineUserId) {
+    console.log(`[analyst] Web scope: articles only for user ${pipelineUserId}`);
+  }
 
   try {
     await assertOpenRouterKeyHasHeadroom();
@@ -158,9 +165,7 @@ async function main(): Promise<void> {
   const articles = await db.article.findMany({
     where: {
       status: "SCRAPED",
-      ...(interestId
-        ? { source: { interests: { some: { interestId } } } }
-        : {}),
+      ...(articleScope ?? {}),
     },
     select: { id: true, url: true, title: true },
     orderBy: { scrapedAt: "asc" },

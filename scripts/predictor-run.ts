@@ -15,6 +15,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
+import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 
 const exec = promisify(execFile);
 const TSX = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -126,7 +127,13 @@ async function postPredictionsToTelegram(
 async function main(): Promise<void> {
   const db = getOpenClawDb();
   const interestId = parseInterestIdArg();
+  const pipelineUserId = pipelineUserIdFromEnv();
+  const articleScope = articleWhereScoped({ interestId, userId: pipelineUserId });
+
   console.log("[predictor] Starting predictor run");
+  if (pipelineUserId) {
+    console.log(`[predictor] Web scope: SUMMARIZED articles only for user ${pipelineUserId}`);
+  }
 
   let predictionsThreadId: number | undefined;
   if (SUPERGROUP_ID) {
@@ -138,9 +145,7 @@ async function main(): Promise<void> {
   const articles = await db.article.findMany({
     where: {
       status: "SUMMARIZED",
-      ...(interestId
-        ? { source: { interests: { some: { interestId } } } }
-        : {}),
+      ...(articleScope ?? {}),
     },
     select: { id: true, title: true },
     orderBy: { analyzedAt: "asc" },

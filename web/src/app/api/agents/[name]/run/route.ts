@@ -2,11 +2,16 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { AGENT_DEFS, agentProcesses, REPO_ROOT } from '@/lib/agents'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/user'
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ name: string }> }
 ) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
   const { name } = await params
   const def = AGENT_DEFS[name]
 
@@ -33,6 +38,7 @@ export async function POST(
     ...process.env,
     FORCE_COLOR: '0',
     NO_COLOR: '1',
+    INFO_SENTRY_USER_ID: userId,
     ...(modelOverride ? { AGENT_MODEL_OVERRIDE: modelOverride } : {}),
   }
 

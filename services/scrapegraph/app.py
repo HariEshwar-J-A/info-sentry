@@ -2,8 +2,8 @@
 ScrapeGraphAI sidecar — SmartScraperGraph + SearchGraph behind FastAPI.
 
 OpenRouter is wired via LangChain ChatOpenAI + custom base_url (OpenAI-compatible API).
-We cannot pass \"google/...\" as the llm \"model\" string: AbstractGraph splits on \"/\"
-and expects a supported LangChain provider prefix (\"google\" alone is invalid).
+ScrapeGraphAI must receive an llm **model_instance** (never a bare `model` string like
+`openrouter/...`) — recent library versions split on "/" and reject provider `openrouter`.
 """
 from __future__ import annotations
 
@@ -22,6 +22,56 @@ log = logging.getLogger("scrapegraph-sidecar")
 
 app = FastAPI(title="Info-Sentry ScrapeGraph Sidecar", version="1.0.0")
 
+_llm_patch_installed = False
+
+
+def _patch_scrapegraph_abstract_graph_llm() -> None:
+    """
+    Upstream AbstractGraph may merge llm defaults or parse `model` before honoring
+    `model_instance`, yielding Provider openrouter is not supported for OpenRouter URLs.
+    Always short-circuit when we pass a LangChain chat model explicitly.
+    """
+    global _llm_patch_installed
+    if _llm_patch_installed:
+        return
+
+    from scrapegraphai.graphs.abstract_graph import AbstractGraph
+
+    _orig = AbstractGraph._create_llm
+
+    def _create_llm_infosentry(self: Any, llm_config: dict[str, Any]) -> Any:
+        inst = llm_config.get("model_instance")
+        if inst is not None:
+            try:
+                tokens = llm_config["model_tokens"]
+            except KeyError as exc:
+                raise KeyError("model_tokens not specified") from exc
+            self.model_token = tokens
+            return inst
+        return _orig(self, llm_config)
+
+    AbstractGraph._create_llm = _create_llm_infosentry  # type: ignore[method-assign]
+    _llm_patch_installed = True
+    log.info("Patched scrapegraphai AbstractGraph._create_llm for OpenRouter model_instance")
+
+
+def _normalize_openrouter_model_id(raw: str) -> str:
+    """Strip repeated `openrouter/` prefixes so OpenRouter model IDs stay provider-neutral."""
+    model_id = raw.strip()
+    lowered_prefix = "openrouter/"
+    while model_id.lower().startswith(lowered_prefix):
+        model_id = model_id[len(lowered_prefix) :].lstrip()
+    return model_id
+
+
+def _scrapegraphai_version() -> str:
+    try:
+        from importlib.metadata import version as pkg_version
+
+        return pkg_version("scrapegraphai")
+    except Exception:
+        return "unknown"
+
 DEFAULT_SMART_PROMPT = """Extract from this page:
 1. The canonical article or page title.
 2. The main author or byline if visible.
@@ -34,16 +84,16 @@ content (string), summary (string)."""
 
 
 def _base_llm() -> dict[str, Any]:
-    """Return llm config using model_instance so OpenRouter slug can contain '/'."""
+    """LangChain chat model + tokens — passed to ScrapeGraphAI only via model_instance."""
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_openai import ChatOpenAI
 
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not set")
 
-    model_id = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001").strip()
-    if model_id.startswith("openrouter/"):
-        model_id = model_id[len("openrouter/") :]
+    raw_model = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001")
+    model_id = _normalize_openrouter_model_id(raw_model)
 
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
     temperature = float(os.environ.get("SGAI_TEMPERATURE", "0.2"))
@@ -57,6 +107,9 @@ def _base_llm() -> dict[str, Any]:
         timeout=timeout_s,
     )
 
+    if not isinstance(llm, BaseChatModel):
+        raise TypeError("ChatOpenAI instance expected for model_instance")
+
     model_tokens = int(os.environ.get("SGAI_MODEL_TOKENS", "131072"))
 
     return {
@@ -65,9 +118,15 @@ def _base_llm() -> dict[str, Any]:
     }
 
 
+def _graph_llm_dict() -> dict[str, Any]:
+    """Only keys consumed by AbstractGraph's model_instance branch — avoids stray `model` strings."""
+    base = _base_llm()
+    return {"model_instance": base["model_instance"], "model_tokens": base["model_tokens"]}
+
+
 def _graph_config(**extra_top_level: Any) -> dict[str, Any]:
     cfg: dict[str, Any] = {
-        "llm": _base_llm(),
+        "llm": _graph_llm_dict(),
         "verbose": os.environ.get("SGAI_VERBOSE", "false").lower() == "true",
         "headless": os.environ.get("SGAI_HEADLESS", "true").lower() != "false",
     }
@@ -91,6 +150,7 @@ class FollowRedirectsRequest(BaseModel):
 
 
 def _run_smart_scrape(url: str, prompt: str) -> dict[str, Any]:
+    _patch_scrapegraph_abstract_graph_llm()
     from scrapegraphai.graphs import SmartScraperGraph
 
     graph = SmartScraperGraph(
@@ -103,6 +163,7 @@ def _run_smart_scrape(url: str, prompt: str) -> dict[str, Any]:
 
 
 def _run_search_scrape(topic: str, prompt: str, max_results: int) -> dict[str, Any]:
+    _patch_scrapegraph_abstract_graph_llm()
     from scrapegraphai.graphs import SearchGraph
 
     full_prompt = f"Topic: {topic}\n\n{prompt}"
@@ -136,9 +197,21 @@ def _run_follow_redirects(url: str) -> dict[str, str]:
             browser.close()
 
 
+@app.on_event("startup")
+def _log_build_info() -> None:
+    _patch_scrapegraph_abstract_graph_llm()
+    raw = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001")
+    log.info(
+        "scrapegraphai %s — SGAI_MODEL %r → ChatOpenAI model %r",
+        _scrapegraphai_version(),
+        raw.strip(),
+        _normalize_openrouter_model_id(raw),
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "scrapegraphai": _scrapegraphai_version()}
 
 
 @app.post("/smart-scrape")

@@ -7,6 +7,7 @@
  * Phase 2: Manual linked sources (RSS + listing), same SGAI fallback.
  *
  * Env:
+ *   INFO_SENTRY_USER_ID — optional; when set (web Settings runs), only that user's active interests/sources.
  *   SCRAPEGRAPH_URL (default http://127.0.0.1:8811)
  *   SGAI_MAX_CALLS_PER_RUN (default 30)
  *   SGAI_MIN_CONTENT_LEN (default 400)
@@ -20,6 +21,7 @@ import { parseStringPromise } from "xml2js";
 import { load } from "cheerio";
 import { getScoutDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
+import { interestWhereClause, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 import {
   discoverForQuery,
   buildGoogleNewsRssUrl,
@@ -839,6 +841,7 @@ async function main(): Promise<void> {
   const db = getScoutDb();
   const globalSeen = new Set<string>();
   const interestId = parseInterestIdArg();
+  const pipelineUserId = pipelineUserIdFromEnv();
   const sgaiGlobal = new SgaiBudget(SGAI_MAX_CALLS);
 
   const sgSidecarOk = await probeScrapegraphSidecar();
@@ -857,8 +860,12 @@ async function main(): Promise<void> {
   );
   console.log(`[scout] ═══════════════════════════════════════\n`);
 
+  if (pipelineUserId) {
+    console.log(`[scout] Web scope: processing topics and feeds for user ${pipelineUserId}\n`);
+  }
+
   const interests = await db.interest.findMany({
-    where: { isActive: true, ...(interestId ? { id: interestId } : {}) },
+    where: interestWhereClause({ interestId, userId: pipelineUserId }),
     select: { id: true, topic: true, description: true, searchKeywords: true },
     orderBy: { score: "desc" },
   });
@@ -881,7 +888,7 @@ async function main(): Promise<void> {
   console.log(`\n[scout] Phase 1 done: ${phase1Total} articles (SGAI calls used: ${sgaiGlobal.used})\n`);
 
   const junctions = await db.interestSource.findMany({
-    where: { interest: { isActive: true, ...(interestId ? { id: interestId } : {}) } },
+    where: { interest: interestWhereClause({ interestId, userId: pipelineUserId }) },
     include: {
       interest: { select: { topic: true, description: true, searchKeywords: true } },
       source: { select: { id: true, name: true, url: true, rssUrl: true, isActive: true } },

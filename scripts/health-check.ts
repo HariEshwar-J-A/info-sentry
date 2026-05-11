@@ -6,9 +6,12 @@
  *
  * Outputs JSON with agent statuses, article/summary/prediction counts, DB status,
  * and Scout v3 ScrapeGraph sidecar reachability.
+ *
+ * When INFO_SENTRY_USER_ID is set (web Settings runs), counts reflect only that user's feeds/topics.
  */
 import "dotenv/config";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
+import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 import { getQueryExpandModel, getSgaiModelHint } from "./lib/scout-llm-defaults.js";
 
 async function probeScrapegraph(): Promise<{ ok: boolean; url: string }> {
@@ -27,15 +30,41 @@ async function probeScrapegraph(): Promise<{ ok: boolean; url: string }> {
 async function main(): Promise<void> {
   const db = getOpenClawDb();
 
+  const pipelineUserId = pipelineUserIdFromEnv();
+  const articleScope = pipelineUserId ? articleWhereScoped({ userId: pipelineUserId }) : undefined;
+  if (pipelineUserId) {
+    console.error(`[health] Web scope: counts for user ${pipelineUserId}`);
+  }
+
   const [agentConfigs, articleCount, summaryCount, predictionCount, pendingCount, scrapegraph] =
     await Promise.all([
       db.agentConfig.findMany({
         select: { agentName: true, isActive: true, lastRunAt: true, lastError: true },
       }),
-      db.article.count(),
-      db.summary.count(),
-      db.prediction.count(),
-      db.article.count({ where: { status: "SCRAPED" } }),
+      db.article.count(articleScope ? { where: articleScope } : undefined),
+      db.summary.count(
+        articleScope
+          ? {
+              where: {
+                article: articleScope,
+              },
+            }
+          : undefined,
+      ),
+      db.prediction.count(
+        articleScope
+          ? {
+              where: {
+                article: articleScope,
+              },
+            }
+          : undefined,
+      ),
+      db.article.count(
+        articleScope
+          ? { where: { status: "SCRAPED", ...articleScope } }
+          : { where: { status: "SCRAPED" } },
+      ),
       probeScrapegraph(),
     ]);
 

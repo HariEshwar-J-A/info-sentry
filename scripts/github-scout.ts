@@ -20,6 +20,7 @@
  */
 import "dotenv/config";
 import { getScoutDb, disconnectAll } from "./lib/prisma.js";
+import { interestWhereClause, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 
 // ─── Config ────────────────────────────────────────────────
 
@@ -293,16 +294,17 @@ async function main() {
   ) as { interestId?: string; dryRun?: string };
 
   const dryRun = args.dryRun === "true" || args.dryRun === "";
+  const pipelineUserId = pipelineUserIdFromEnv();
   const db = getScoutDb();
 
   console.log("[github] ═══════════════════════════════════════");
   console.log(`[github] GitHub Scout — ${GITHUB_TOKEN ? "authenticated" : "unauthenticated (add GITHUB_TOKEN for higher rate limits)"}`);
   if (dryRun) console.log("[github] DRY RUN — no DB writes");
+  if (pipelineUserId) console.log(`[github] Web scope: topics for user ${pipelineUserId}`);
   console.log("[github] ═══════════════════════════════════════");
 
-  const where = args.interestId ? { id: args.interestId } : { isActive: true };
   const interests = await db.interest.findMany({
-    where,
+    where: interestWhereClause({ interestId: args.interestId ?? null, userId: pipelineUserId }),
     select: { id: true, topic: true, description: true, searchKeywords: true },
     orderBy: { score: "desc" },
   });

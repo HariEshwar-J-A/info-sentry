@@ -2,9 +2,14 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { agentProcesses, REPO_ROOT } from '@/lib/agents'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/user'
 
 // Full pipeline: scout → analyst pipeline (sequential)
 export async function POST() {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
   const key = '__full_pipeline__'
 
   // Stop any existing full-pipeline run
@@ -30,7 +35,12 @@ export async function POST() {
           const scriptPath = path.join(REPO_ROOT, scriptFile)
           const child = spawn('npx', ['tsx', scriptPath], {
             cwd: REPO_ROOT,
-            env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+            env: {
+              ...process.env,
+              FORCE_COLOR: '0',
+              NO_COLOR: '1',
+              INFO_SENTRY_USER_ID: userId,
+            },
             stdio: ['ignore', 'pipe', 'pipe'],
           })
 

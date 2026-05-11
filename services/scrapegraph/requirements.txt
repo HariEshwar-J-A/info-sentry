@@ -2,4 +2,5 @@
 fastapi>=0.115.0,<1
 uvicorn[standard]>=0.32.0,<1
 pydantic>=2.0.0,<3
-scrapegraphai>=1.70.0,<2
+# Pin ScrapeGraphAI: unpinned/git installs can reject OpenRouter unless model_instance is honored.
+scrapegraphai==1.20.1

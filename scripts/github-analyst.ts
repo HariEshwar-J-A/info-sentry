@@ -13,6 +13,7 @@ import { getScoutDb, disconnectAll } from "./lib/prisma.js";
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
 import { getModelsForCurrentBudget, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
+import { pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 
 const BOT_TOKEN  = process.env["TELEGRAM_BOT_TOKEN"];
 const SUPERGROUP = process.env["TELEGRAM_SUPERGROUP_ID"];
@@ -131,6 +132,39 @@ async function main() {
   const limit = parseInt(args.limit ?? "30", 10)
   const db = getScoutDb()
 
+  const pipelineUserId = pipelineUserIdFromEnv()
+  if (pipelineUserId && args.interestId) {
+    const ok = await db.interest.findFirst({
+      where: { id: args.interestId, userId: pipelineUserId, isActive: true },
+    })
+    if (!ok) {
+      console.error("[github-analyst] Topic does not belong to this user or is inactive")
+      await disconnectAll()
+      process.exit(1)
+    }
+  }
+
+  let scopedInterestIds: string[] | undefined
+  if (pipelineUserId && !args.interestId) {
+    scopedInterestIds = (
+      await db.interest.findMany({
+        where: { userId: pipelineUserId, isActive: true },
+        select: { id: true },
+      })
+    ).map((r) => r.id)
+    if (scopedInterestIds.length === 0) {
+      console.log("[github-analyst] Web scope: no active topics — skipping")
+      await disconnectAll()
+      return
+    }
+    console.log(`[github-analyst] Web scope: ${scopedInterestIds.length} topic(s) for user`)
+  }
+
+  const repoInterestWhere =
+    args.interestId ? { interestId: args.interestId }
+    : scopedInterestIds ? { interestId: { in: scopedInterestIds } }
+    : {}
+
   // Resolve GitHub-Feed Telegram thread
   let githubFeedThreadId: number | undefined
   if (BOT_TOKEN && SUPERGROUP) {
@@ -160,7 +194,7 @@ async function main() {
   const stale = await db.gitHubRepo.findMany({
     where: {
       aiSummary: { not: null },
-      ...(args.interestId ? { interestId: args.interestId } : {}),
+      ...repoInterestWhere,
     },
     select: { id: true, fullName: true, aiSummary: true },
   })
@@ -178,7 +212,7 @@ async function main() {
     where: {
       aiSummary: null,
       readme: { not: null },
-      ...(args.interestId ? { interestId: args.interestId } : {}),
+      ...repoInterestWhere,
     },
     orderBy: { stars: "desc" },
     take: limit,
@@ -224,7 +258,7 @@ async function main() {
   const toNotify = await db.gitHubRepo.findMany({
     where: {
       notifiedAt: null,
-      ...(args.interestId ? { interestId: args.interestId } : {}),
+      ...repoInterestWhere,
     },
     orderBy: { stars: "desc" },
     take: 50,

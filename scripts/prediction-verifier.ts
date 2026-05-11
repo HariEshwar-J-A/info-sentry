@@ -15,12 +15,13 @@
  */
 import "dotenv/config";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
+import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend } from "./lib/budget.js";
 import { KIMI_K2 } from "./lib/models.js";
 
 const DRY_RUN = process.argv.includes("--dryRun");
-const OWNER_USER_ID = process.env["OWNER_USER_ID"] ?? "cmoi886x30000z57fqxkeg2ms";
+const LEGACY_OWNER_USER_ID = process.env["OWNER_USER_ID"] ?? "cmoi886x30000z57fqxkeg2ms";
 
 // ─── DuckDuckGo HTML search ───────────────────────────────────────────────────
 
@@ -252,6 +253,14 @@ async function main(): Promise<void> {
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+  const pipelineUserId = pipelineUserIdFromEnv();
+  const articleScopeUser = pipelineUserId ? articleWhereScoped({ userId: pipelineUserId }) : undefined;
+  const notificationUserId = pipelineUserId ?? LEGACY_OWNER_USER_ID;
+
+  if (pipelineUserId) {
+    console.log(`[verifier] Web scope: predictions + article context for user ${pipelineUserId}`);
+  }
+
   // Get PENDING predictions eligible for verification
   const predictions = await db.prediction.findMany({
     where: {
@@ -260,6 +269,7 @@ async function main(): Promise<void> {
         { trackedByUser: true },
         { dueDate: { lte: in7Days } },
       ],
+      ...(articleScopeUser ? { article: articleScopeUser } : {}),
     },
     include: {
       article: {
@@ -288,6 +298,7 @@ async function main(): Promise<void> {
       scrapedAt: { gte: since48h },
       status: { in: ["SUMMARIZED", "POSTED"] },
       summary: { isNot: null },
+      ...(articleScopeUser ?? {}),
     },
     include: {
       summary: { select: { content: true, keyTopics: true } },
@@ -350,7 +361,7 @@ async function main(): Promise<void> {
       const emoji = result.verdict === "CORRECT" ? "✅" : result.verdict === "INCORRECT" ? "❌" : "🔶";
       await db.notification.create({
         data: {
-          userId: OWNER_USER_ID,
+          userId: notificationUserId,
           type: "PREDICTION_VERIFIED",
           title: `${emoji} Prediction ${result.verdict.replace(/_/g, " ")}`,
           body: prediction.content.slice(0, 120) + (prediction.content.length > 120 ? "…" : ""),
