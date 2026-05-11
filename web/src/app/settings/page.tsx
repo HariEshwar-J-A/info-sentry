@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { Zap } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 
 interface AgentInfo {
@@ -237,7 +238,7 @@ export default function SettingsPage() {
           >
             {pipelineRunning
               ? <><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse 1s infinite' }} /> Running…</>
-              : '⚡ Run Full Pipeline'}
+              : <><Zap size={14} /> Run Full Pipeline</>}
           </button>
         }
       />
@@ -250,6 +251,31 @@ export default function SettingsPage() {
             <LogPanel lines={pipelineLogs} onClear={() => setPipelineLogs([])} />
           </div>
         )}
+
+        {/* Automation schedules */}
+        <div>
+          <div style={{ fontSize: '12px', color: '#555', marginBottom: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Automation (cron)</div>
+          <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[
+              { label: 'Full pipeline', schedule: '0 */6 * * *', cmd: 'make pipeline', desc: 'Scout → analyst → predictor every 6 hours' },
+              { label: 'Daily brief', schedule: '0 8 * * *',    cmd: 'make brief',    desc: 'Personalized content brief at 8am' },
+              { label: 'Weekly digest', schedule: '0 19 * * 0',  cmd: 'make weekly',   desc: 'Weekly recap Sundays at 7pm' },
+              { label: 'Source quality', schedule: '0 3 * * 1',  cmd: 'npx tsx scripts/source-quality.ts', desc: 'Auto-adjust trust scores Mondays at 3am' },
+              { label: 'Interest decay', schedule: '0 4 * * 1',  cmd: 'make decay',    desc: 'Decay idle interests Mondays at 4am' },
+            ].map(row => (
+              <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', color: '#a0a0a0', minWidth: '100px', fontWeight: 500 }}>{row.label}</span>
+                <code style={{ fontSize: '11px', color: '#6366f1', backgroundColor: '#0d0d0d', borderRadius: '4px', padding: '2px 8px', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{row.schedule}</code>
+                <code style={{ fontSize: '11px', color: '#8a8a8a', backgroundColor: '#0d0d0d', borderRadius: '4px', padding: '2px 8px', fontFamily: 'monospace', flex: 1, minWidth: '180px' }}>{row.cmd}</code>
+                <span style={{ fontSize: '11px', color: '#555' }}>{row.desc}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: '4px', fontSize: '11px', color: '#444' }}>
+              Add to crontab: <code style={{ color: '#555', fontFamily: 'monospace' }}>crontab -e</code>
+              &nbsp;— each line format: <code style={{ color: '#555', fontFamily: 'monospace' }}>SCHEDULE cd /path/to/info-sentry &amp;&amp; COMMAND</code>
+            </div>
+          </div>
+        </div>
 
         {/* Agent cards */}
         {loading ? (

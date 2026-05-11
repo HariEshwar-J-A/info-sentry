@@ -6,7 +6,7 @@
         db-up db-down db-reset db-generate db-migrate db-seed db-topics \
         db-shell db-logs docker-install \
         pipeline scout github health budget bot logs help \
-        brief weekly decay youtube
+        brief weekly decay youtube source-quality
 
 # ── Service lifecycle ─────────────────────────────────────────────────────────
 dev:      ## Start DB + all app services in foreground (Ctrl+C kills everything)
@@ -96,6 +96,9 @@ brief:    ## Send personalized daily content brief to Telegram
 
 weekly:   ## Send weekly intelligence digest to Telegram (run Sundays)
 	npx tsx scripts/weekly-digest.ts
+
+source-quality: ## Auto-adjust source trust scores based on article quality
+	npx tsx scripts/source-quality.ts --apply
 
 decay:    ## Apply 10% score decay to interests idle for ≥14 days
 	npx tsx scripts/interest-decay.ts --apply

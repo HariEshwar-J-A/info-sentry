@@ -28,6 +28,31 @@ export async function GET() {
     const partial = resolved.filter((p) => p.status === 'PARTIALLY_CORRECT').length
     const accuracyRate = total > 0 ? (correct + partial * 0.5) / total : 0
 
+    // Streak: consecutive correct/partial from most recent
+    const chronological = [...resolved].sort((a, b) =>
+      new Date(b.resolvedAt ?? b.createdAt).getTime() - new Date(a.resolvedAt ?? a.createdAt).getTime()
+    )
+    let currentStreak = 0
+    let bestStreak = 0
+    let streak = 0
+    for (const p of chronological) {
+      if (p.status === 'CORRECT' || p.status === 'PARTIALLY_CORRECT') {
+        streak++
+        if (streak > bestStreak) bestStreak = streak
+        if (currentStreak === 0 || streak <= currentStreak) currentStreak = streak
+      } else {
+        if (currentStreak === 0) currentStreak = 0
+        streak = 0
+      }
+    }
+    // current streak = streak from the newest resolved prediction
+    let cs = 0
+    for (const p of chronological) {
+      if (p.status === 'CORRECT' || p.status === 'PARTIALLY_CORRECT') cs++
+      else break
+    }
+    currentStreak = cs
+
     // By confidence bucket
     const buckets = [
       { label: '0–50%', min: 0, max: 0.5 },
@@ -68,7 +93,7 @@ export async function GET() {
       .sort((a, b) => b.total - a.total)
       .slice(0, 15)
 
-    return Response.json({ total, correct, incorrect, partial, accuracyRate, byConfidence, byTopic })
+    return Response.json({ total, correct, incorrect, partial, accuracyRate, currentStreak, bestStreak, byConfidence, byTopic })
   } catch (err) {
     console.error('Prediction stats error:', err)
     return Response.json({ error: 'Failed to compute stats' }, { status: 500 })

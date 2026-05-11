@@ -47,6 +47,8 @@ interface Stats {
   incorrect: number
   partial: number
   accuracyRate: number
+  currentStreak: number
+  bestStreak: number
   byConfidence: { bucket: string; total: number; correct: number; partial: number; rate: number }[]
   byTopic: { topic: string; total: number; correct: number; partial: number; rate: number }[]
 }
@@ -407,20 +409,44 @@ export default function PredictionsPage() {
         {/* ─── STATS TAB ─── */}
         {!loading && tab === 'stats' && stats && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
               {[
                 { label: 'Total Resolved', value: stats.total, color: '#f0f0f0' },
                 { label: 'Accuracy Rate', value: `${Math.round(stats.accuracyRate * 100)}%`, color: stats.accuracyRate > 0.6 ? '#22c55e' : stats.accuracyRate > 0.4 ? '#eab308' : '#ef4444' },
                 { label: 'Correct', value: stats.correct, color: '#22c55e' },
                 { label: 'Incorrect', value: stats.incorrect, color: '#ef4444' },
                 { label: 'Partial', value: stats.partial, color: '#eab308' },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '10px', padding: '16px' }}>
+                { label: 'Current Streak', value: stats.currentStreak > 0 ? `${stats.currentStreak}` : '—', color: stats.currentStreak >= 3 ? '#22c55e' : '#f0f0f0', sub: stats.currentStreak >= 3 ? 'correct in a row' : stats.currentStreak === 0 ? '' : 'correct in a row' },
+                { label: 'Best Streak', value: stats.bestStreak > 0 ? `${stats.bestStreak}` : '—', color: '#a5b4fc' },
+              ].map(({ label, value, color, sub }) => (
+                <div key={label} style={{ backgroundColor: '#111', border: `1px solid ${label === 'Current Streak' && stats.currentStreak >= 3 ? 'rgba(34,197,94,0.2)' : '#1f1f1f'}`, borderRadius: '10px', padding: '16px' }}>
                   <div style={{ fontSize: '11px', color: '#8a8a8a', marginBottom: '6px' }}>{label}</div>
                   <div style={{ fontSize: '24px', fontWeight: 700, color }}>{value}</div>
+                  {sub && <div style={{ fontSize: '10px', color: '#555', marginTop: '3px' }}>{sub}</div>}
                 </div>
               ))}
             </div>
+
+            {/* Calibration insight */}
+            {stats.byConfidence.some(b => b.total >= 2) && (
+              <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '10px', padding: '14px 16px' }}>
+                <div style={{ fontSize: '12px', color: '#8a8a8a', marginBottom: '8px', fontWeight: 600 }}>Calibration</div>
+                <div style={{ fontSize: '12px', color: '#666', lineHeight: '1.6' }}>
+                  {(() => {
+                    const hi = stats.byConfidence.find(b => b.bucket === '70–100%')
+                    const lo = stats.byConfidence.find(b => b.bucket === '0–50%')
+                    if (hi && lo && hi.total >= 2 && lo.total >= 2) {
+                      const hiRate = Math.round(hi.rate * 100)
+                      const loRate = Math.round(lo.rate * 100)
+                      if (hiRate > loRate + 10) return `Well calibrated — high-confidence picks (${hiRate}%) outperform low-confidence ones (${loRate}%).`
+                      if (Math.abs(hiRate - loRate) <= 10) return `Confidence isn't predicting accuracy yet. High (${hiRate}%) and low (${loRate}%) confidence picks perform similarly.`
+                      return `Overconfidence detected — high-confidence picks (${hiRate}%) underperform low-confidence ones (${loRate}%).`
+                    }
+                    return 'Need more resolved predictions across confidence buckets for calibration analysis.'
+                  })()}
+                </div>
+              </div>
+            )}
 
             {stats.byConfidence.length > 0 && (
               <div>
