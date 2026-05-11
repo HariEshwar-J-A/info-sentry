@@ -9,9 +9,12 @@ interface AgentInfo {
   label: string
   description: string
   icon: string
+  group: string
   canRun: boolean
   defaultModel: string
   currentModel: string
+  defaultCron: string | null
+  cronSchedule: string | null
   isActive: boolean
   lastRunAt: string | null
   lastError: string | null
@@ -70,6 +73,36 @@ function LogPanel({ lines, onClear }: { lines: LogLine[]; onClear: () => void })
   )
 }
 
+const GROUP_LABELS: Record<string, string> = {
+  news: 'News Pipeline',
+  github: 'GitHub Pipeline',
+  video: 'Video Pipeline',
+  maintenance: 'Maintenance',
+  system: 'System / Event-driven',
+}
+
+function describeCron(expr: string): string {
+  if (!expr) return ''
+  const parts = expr.trim().split(/\s+/)
+  if (parts.length !== 5) return expr
+  const [min, hour, dom, month, dow] = parts
+  if (min === '0' && hour === '8' && dom === '*' && month === '*' && dow === '*') return 'Daily at 8:00am'
+  if (min === '0' && hour === '19' && dom === '*' && month === '*' && dow === '0') return 'Sundays at 7:00pm'
+  if (min === '0' && dom === '*' && month === '*' && dow === '*') {
+    const h = parseInt(hour)
+    if (hour.startsWith('*/')) return `Every ${hour.slice(2)}h`
+    if (!isNaN(h)) return `Daily at ${h}:00${h < 12 ? 'am' : 'pm'}`
+  }
+  if (min.startsWith('*/')) return `Every ${min.slice(2)} min`
+  if (hour.startsWith('*/') && min === '0') return `Every ${hour.slice(2)} hours`
+  if (hour.startsWith('*/')) return `Every ${hour.slice(2)} hours at :${min.padStart(2, '0')}`
+  if (dow === '1' && dom === '*') {
+    const h = parseInt(hour)
+    return `Mondays at ${!isNaN(h) ? h : hour}:${min.padStart(2, '0')}${!isNaN(h) && h < 12 ? 'am' : 'pm'}`
+  }
+  return expr
+}
+
 export default function SettingsPage() {
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [models, setModels] = useState<ModelOption[]>([])
@@ -78,6 +111,8 @@ export default function SettingsPage() {
   const [pipelineLogs, setPipelineLogs] = useState<LogLine[]>([])
   const [pipelineRunning, setPipelineRunning] = useState(false)
   const [savingModel, setSavingModel] = useState<string | null>(null)
+  const [editingCron, setEditingCron] = useState<string | null>(null)
+  const [cronDraft, setCronDraft] = useState('')
   const abortRefs = useRef<Record<string, AbortController>>({})
 
   const fetchAgents = useCallback(() => {
@@ -105,6 +140,15 @@ export default function SettingsPage() {
       body: JSON.stringify({ modelId }),
     })
     setSavingModel(null)
+    fetchAgents()
+  }
+
+  async function handleCronChange(agentName: string, cronSchedule: string | null) {
+    await fetch(`/api/agents/${agentName}/cron`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cronSchedule }),
+    })
     fetchAgents()
   }
 
@@ -252,37 +296,20 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Automation schedules */}
-        <div>
-          <div style={{ fontSize: '12px', color: '#555', marginBottom: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Automation (cron)</div>
-          <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[
-              { label: 'Full pipeline', schedule: '0 */6 * * *', cmd: 'make pipeline', desc: 'Scout → analyst → predictor every 6 hours' },
-              { label: 'Daily brief', schedule: '0 8 * * *',    cmd: 'make brief',    desc: 'Personalized content brief at 8am' },
-              { label: 'Weekly digest', schedule: '0 19 * * 0',  cmd: 'make weekly',   desc: 'Weekly recap Sundays at 7pm' },
-              { label: 'Source quality', schedule: '0 3 * * 1',  cmd: 'npx tsx scripts/source-quality.ts', desc: 'Auto-adjust trust scores Mondays at 3am' },
-              { label: 'Interest decay', schedule: '0 4 * * 1',  cmd: 'make decay',    desc: 'Decay idle interests Mondays at 4am' },
-            ].map(row => (
-              <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '12px', color: '#a0a0a0', minWidth: '100px', fontWeight: 500 }}>{row.label}</span>
-                <code style={{ fontSize: '11px', color: '#6366f1', backgroundColor: '#0d0d0d', borderRadius: '4px', padding: '2px 8px', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{row.schedule}</code>
-                <code style={{ fontSize: '11px', color: '#8a8a8a', backgroundColor: '#0d0d0d', borderRadius: '4px', padding: '2px 8px', fontFamily: 'monospace', flex: 1, minWidth: '180px' }}>{row.cmd}</code>
-                <span style={{ fontSize: '11px', color: '#555' }}>{row.desc}</span>
-              </div>
-            ))}
-            <div style={{ marginTop: '4px', fontSize: '11px', color: '#444' }}>
-              Add to crontab: <code style={{ color: '#555', fontFamily: 'monospace' }}>crontab -e</code>
-              &nbsp;— each line format: <code style={{ color: '#555', fontFamily: 'monospace' }}>SCHEDULE cd /path/to/info-sentry &amp;&amp; COMMAND</code>
-            </div>
-          </div>
-        </div>
-
-        {/* Agent cards */}
+        {/* Agent cards grouped by pipeline */}
         {loading ? (
           <div style={{ color: '#555', fontSize: '14px', padding: '40px 0' }}>Loading agents…</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {agents.map(agent => {
+          Object.entries(GROUP_LABELS).map(([groupKey, groupLabel]) => {
+            const groupAgents = agents.filter(a => a.group === groupKey)
+            if (groupAgents.length === 0) return null
+            return (
+              <div key={groupKey}>
+                <div style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>
+                  {groupLabel}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {groupAgents.map(agent => {
               const logs = agentLogs[agent.name] ?? []
               const isRunning = agent.isRunning
               const runColor = isRunning ? '#22c55e' : agent.isActive ? '#555' : '#333'
@@ -367,6 +394,58 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
+                  {/* Cron schedule editor */}
+                  {agent.defaultCron !== null && (
+                    <div style={{ borderTop: '1px solid #1a1a1a', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '11px', color: '#555', minWidth: '80px' }}>Schedule</span>
+                      {editingCron === agent.name ? (
+                        <>
+                          <input
+                            value={cronDraft}
+                            onChange={e => setCronDraft(e.target.value)}
+                            placeholder="cron expression  e.g. 0 8 * * *"
+                            style={{ fontFamily: 'monospace', fontSize: '12px', padding: '4px 10px', borderRadius: '6px', border: '1px solid #6366f1', background: '#0d0d0d', color: '#f0f0f0', outline: 'none', width: '180px' }}
+                          />
+                          <span style={{ fontSize: '11px', color: '#6366f1' }}>{describeCron(cronDraft)}</span>
+                          <button
+                            onClick={async () => {
+                              await handleCronChange(agent.name, cronDraft || null)
+                              setEditingCron(null)
+                            }}
+                            style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '5px', border: 'none', background: '#6366f1', color: '#fff', cursor: 'pointer' }}
+                          >Save</button>
+                          <button
+                            onClick={() => setEditingCron(null)}
+                            style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '5px', border: '1px solid #2a2a2a', background: 'none', color: '#555', cursor: 'pointer' }}
+                          >Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <code style={{ fontFamily: 'monospace', fontSize: '11px', color: '#6366f1', backgroundColor: '#0d0d0d', borderRadius: '4px', padding: '2px 8px' }}>
+                            {agent.cronSchedule ?? '—'}
+                          </code>
+                          {agent.cronSchedule && (
+                            <span style={{ fontSize: '11px', color: '#555' }}>{describeCron(agent.cronSchedule)}</span>
+                          )}
+                          <button
+                            onClick={() => { setCronDraft(agent.cronSchedule ?? agent.defaultCron ?? ''); setEditingCron(agent.name) }}
+                            style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '5px', border: '1px solid #2a2a2a', background: 'none', color: '#8a8a8a', cursor: 'pointer' }}
+                          >Edit</button>
+                          {agent.cronSchedule && (
+                            <button
+                              onClick={async () => {
+                                const line = `${agent.cronSchedule} cd /path/to/info-sentry && npx tsx scripts/${agent.name === 'daily-brief' ? 'daily-brief' : agent.name === 'weekly-digest' ? 'weekly-digest' : agent.name}.ts`
+                                await navigator.clipboard.writeText(line).catch(() => {})
+                              }}
+                              title="Copy crontab line"
+                              style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #2a2a2a', background: 'none', color: '#555', cursor: 'pointer' }}
+                            >Copy crontab</button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   {/* Log output */}
                   {logs.length > 0 && (
                     <div style={{ borderTop: '1px solid #1a1a1a', padding: '12px 16px' }}>
@@ -376,7 +455,10 @@ export default function SettingsPage() {
                 </div>
               )
             })}
-          </div>
+                </div>
+              </div>
+            )
+          })
         )}
       </div>
     </div>
