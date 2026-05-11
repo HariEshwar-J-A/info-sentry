@@ -51,7 +51,136 @@ Guidelines:
 4. RELEVANCE: 0.0 (irrelevant) to 1.0 (highly relevant).
 5. SOURCE TRUST DELTA: -0.1 to 0.1. Adjust for quality/accuracy.
 
-Respond ONLY with the JSON object. No markdown code fences. No extra text.`;
+Respond ONLY with the JSON object. No markdown code fences. No extra text.
+
+CRITICAL — valid JSON only: Inside string values you may use markdown (**bold**, bullets).
+Use \\n for newlines in "summary". Never use a backslash before * or # or letters (e.g. \\* or \\L are invalid JSON). Use Unicode apostrophes if needed; escape only \\\", \\\\, and \\n.`;
+
+/** Fix LLM output where invalid \\ escapes appear inside JSON strings (e.g. \\*, \\L). */
+function repairInvalidJsonEscapes(raw: string): string {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      let bs = 0;
+      for (let j = i - 1; j >= 0 && raw[j] === "\\"; j--) bs++;
+      if (bs % 2 === 0) inString = false;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) {
+        out += ch;
+        i++;
+        continue;
+      }
+      if (`"\\/bfnrt`.includes(next)) {
+        out += ch + next;
+        i += 2;
+        continue;
+      }
+      if (next === "u") {
+        const hex = raw.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          out += raw.slice(i, i + 6);
+          i += 6;
+          continue;
+        }
+      }
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/** Extract first top-level `{ ... }` using brace depth (respects quoted strings). */
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (c === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function parseAnalystJson(content: string): AnalystLLMResponse {
+  let jsonText = content.trim();
+  const fenced = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced?.[1]) jsonText = fenced[1].trim();
+
+  const candidates = [
+    jsonText,
+    extractFirstJsonObject(jsonText),
+    jsonText.match(/\{[\s\S]*\}/)?.[0],
+  ].filter((s): s is string => !!s);
+
+  const variants = (s: string) => [s, repairInvalidJsonEscapes(s)];
+
+  let lastErr: unknown;
+  for (const c of candidates) {
+    for (const v of variants(c)) {
+      try {
+        const parsed = JSON.parse(v) as AnalystLLMResponse;
+        if (
+          typeof parsed.summary === "string" &&
+          Array.isArray(parsed.keyTopics) &&
+          typeof parsed.sentimentScore === "number" &&
+          typeof parsed.relevanceScore === "number"
+        ) {
+          return {
+            summary: parsed.summary,
+            keyTopics: parsed.keyTopics,
+            sentimentScore: parsed.sentimentScore,
+            relevanceScore: parsed.relevanceScore,
+            sourceTrustDelta: typeof parsed.sourceTrustDelta === "number" ? parsed.sourceTrustDelta : 0,
+            sourceTrustReasoning:
+              typeof parsed.sourceTrustReasoning === "string" ? parsed.sourceTrustReasoning : "",
+          };
+        }
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
 
 function analystModelConfig(modelId: string): ModelConfig {
   if (modelId === MODELS.ANALYST.id) return MODELS.ANALYST;
@@ -152,26 +281,13 @@ async function main(): Promise<void> {
     response.generationId,
   );
 
-  // Robust JSON parsing - extract JSON from markdown code blocks if present
-  let jsonText = response.content;
-  const jsonMatch = response.content.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch?.[1]) {
-    jsonText = jsonMatch[1].trim();
-  }
-  // Also try to find JSON between curly braces
-  const braceMatch = jsonText.match(/\{[\s\S]*\}/);
-  if (braceMatch) {
-    jsonText = braceMatch[0];
-  }
-  
   let analysis: AnalystLLMResponse;
   try {
-    analysis = JSON.parse(jsonText);
+    analysis = parseAnalystJson(response.content);
   } catch (parseErr) {
     console.error("[analyst] Failed to parse LLM response as JSON:", parseErr);
-    console.error("[analyst] Raw response:", response.content.slice(0, 500));
-    // Mark article as failed
-    await db.article.update({ where: { id: articleId }, data: { status: "FAILED" } });
+    console.error("[analyst] Raw response:", response.content.slice(0, 800));
+    await db.article.update({ where: { id: articleId }, data: { status: "FAILED" } }).catch(() => {});
     throw new Error(`JSON parse failed: ${parseErr}`);
   }
 
