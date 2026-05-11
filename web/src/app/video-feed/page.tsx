@@ -40,8 +40,8 @@ export default function VideoFeedPage() {
 
   // Add channel form state
   const [addUrl, setAddUrl] = useState('')
-  const [addName, setAddName] = useState('')
-  const [addChannelId, setAddChannelId] = useState('')
+  const [resolvedInfo, setResolvedInfo] = useState<{ channelId: string; channelName: string; channelUrl: string } | null>(null)
+  const [resolving, setResolving] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
 
@@ -62,27 +62,44 @@ export default function VideoFeedPage() {
 
   useEffect(() => { void loadVideos(selectedChannel ?? undefined) }, [loadVideos, selectedChannel])
 
+  async function handleResolve() {
+    if (!addUrl.trim()) return
+    setResolving(true)
+    setAddError('')
+    setResolvedInfo(null)
+    try {
+      const res = await fetch('/api/channels/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: addUrl }),
+      })
+      const data = (await res.json()) as { channelId?: string; channelName?: string; channelUrl?: string; error?: string }
+      if (!res.ok || !data.channelId) { setAddError(data.error ?? 'Could not resolve channel'); return }
+      setResolvedInfo({ channelId: data.channelId, channelName: data.channelName ?? data.channelId, channelUrl: data.channelUrl ?? addUrl })
+    } catch { setAddError('Network error') } finally { setResolving(false) }
+  }
+
   async function handleAddChannel(e: React.FormEvent) {
     e.preventDefault()
-    if (!addUrl || !addName || !addChannelId) return
+    const info = resolvedInfo
+    if (!addUrl || !info) return
     setAdding(true)
     setAddError('')
     try {
       const res = await fetch('/api/channels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelUrl: addUrl, channelName: addName, channelId: addChannelId }),
+        body: JSON.stringify({ channelUrl: info.channelUrl, channelName: info.channelName, channelId: info.channelId }),
       })
       if (!res.ok) {
         const data = (await res.json()) as { error?: string }
         setAddError(data.error ?? 'Failed to add channel')
         return
       }
-      setAddUrl(''); setAddName(''); setAddChannelId('')
+      setAddUrl(''); setResolvedInfo(null)
       setShowAddChannel(false)
       void loadVideos()
-    } catch { setAddError('Network error') } finally {
-      setAdding(false) }
+    } catch { setAddError('Network error') } finally { setAdding(false) }
   }
 
   async function deleteChannel(id: string) {
@@ -110,42 +127,41 @@ export default function VideoFeedPage() {
         {/* Add channel form */}
         {showAddChannel && (
           <div style={{ marginBottom: '20px', backgroundColor: '#111', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '20px' }}>
-            <div style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0', marginBottom: '14px' }}>Add YouTube Channel</div>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0', marginBottom: '4px' }}>Add YouTube Channel</div>
+            <div style={{ fontSize: '12px', color: '#555', marginBottom: '14px' }}>Paste any YouTube URL — channel page, video, or @handle — and we'll resolve it automatically.</div>
             <form onSubmit={e => void handleAddChannel(e)} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <input
-                  value={addChannelId}
-                  onChange={e => setAddChannelId(e.target.value)}
-                  placeholder="Channel ID (e.g. UCxxxxxx)"
-                  required
-                  style={{ flex: '1 1 200px', background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f0f0f0', fontSize: '13px', padding: '8px 12px', outline: 'none' }}
-                />
-                <input
-                  value={addName}
-                  onChange={e => setAddName(e.target.value)}
-                  placeholder="Display name"
-                  required
-                  style={{ flex: '1 1 160px', background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f0f0f0', fontSize: '13px', padding: '8px 12px', outline: 'none' }}
-                />
+              {/* URL + Resolve row */}
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <input
                   value={addUrl}
-                  onChange={e => setAddUrl(e.target.value)}
-                  placeholder="https://youtube.com/@channel"
-                  required
-                  style={{ flex: '2 1 240px', background: '#0d0d0d', border: '1px solid #2a2a2a', borderRadius: '8px', color: '#f0f0f0', fontSize: '13px', padding: '8px 12px', outline: 'none' }}
+                  onChange={e => { setAddUrl(e.target.value); setResolvedInfo(null); setAddError('') }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleResolve() } }}
+                  placeholder="https://youtube.com/@channelname  or  youtube.com/watch?v=..."
+                  style={{ flex: 1, background: '#0d0d0d', border: `1px solid ${resolvedInfo ? '#22c55e' : '#2a2a2a'}`, borderRadius: '8px', color: '#f0f0f0', fontSize: '13px', padding: '9px 14px', outline: 'none' }}
                 />
+                <button type="button" onClick={() => void handleResolve()} disabled={resolving || !addUrl.trim()}
+                  style={{ padding: '9px 18px', borderRadius: '8px', border: 'none', background: resolvedInfo ? 'rgba(34,197,94,0.15)' : '#1a1a1a', color: resolvedInfo ? '#22c55e' : '#a0a0a0', cursor: resolving ? 'wait' : 'pointer', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {resolving ? 'Resolving…' : resolvedInfo ? '✓ Resolved' : 'Resolve'}
+                </button>
               </div>
-              <div style={{ fontSize: '11px', color: '#555' }}>
-                Find the Channel ID in YouTube Studio → Settings → Channel → Basic info, or use a tool like{' '}
-                <span style={{ color: '#6366f1' }}>commentpicker.com/youtube-channel-id.php</span>
-              </div>
+
+              {/* Resolved preview */}
+              {resolvedInfo && (
+                <div style={{ padding: '10px 14px', backgroundColor: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '8px', fontSize: '12px', color: '#a0a0a0', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <div><span style={{ color: '#555' }}>Channel:</span> <span style={{ color: '#f0f0f0', fontWeight: 600 }}>{resolvedInfo.channelName}</span></div>
+                  <div><span style={{ color: '#555' }}>ID:</span> <code style={{ color: '#6366f1', fontFamily: 'monospace', fontSize: '11px' }}>{resolvedInfo.channelId}</code></div>
+                  <div><span style={{ color: '#555' }}>RSS:</span> <span style={{ color: '#555', fontSize: '11px' }}>youtube.com/feeds/videos.xml?channel_id={resolvedInfo.channelId}</span></div>
+                </div>
+              )}
+
               {addError && <div style={{ fontSize: '12px', color: '#ef4444' }}>{addError}</div>}
+
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button type="submit" disabled={adding}
-                  style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: '#6366f1', color: '#fff', cursor: adding ? 'wait' : 'pointer', fontSize: '13px', fontWeight: 600 }}>
+                <button type="submit" disabled={adding || !resolvedInfo}
+                  style={{ padding: '7px 18px', borderRadius: '8px', border: 'none', background: resolvedInfo ? '#6366f1' : '#1a1a1a', color: resolvedInfo ? '#fff' : '#555', cursor: adding || !resolvedInfo ? 'default' : 'pointer', fontSize: '13px', fontWeight: 600 }}>
                   {adding ? 'Adding…' : 'Add Channel'}
                 </button>
-                <button type="button" onClick={() => setShowAddChannel(false)}
+                <button type="button" onClick={() => { setShowAddChannel(false); setResolvedInfo(null); setAddUrl('') }}
                   style={{ padding: '7px 14px', borderRadius: '8px', border: '1px solid #2a2a2a', background: 'none', color: '#8a8a8a', cursor: 'pointer', fontSize: '13px' }}>
                   Cancel
                 </button>

@@ -17,8 +17,8 @@ export async function GET() {
 
 interface AddChannelBody {
   channelUrl: string
-  channelName: string
-  channelId: string
+  channelName?: string
+  channelId?: string
   rssFeedUrl?: string
   platform?: string
 }
@@ -30,17 +30,47 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as AddChannelBody
-    const { channelUrl, channelName, channelId, rssFeedUrl, platform = 'YOUTUBE' } = body
+    let { channelUrl, channelName, channelId, rssFeedUrl, platform = 'YOUTUBE' } = body
 
-    if (!channelUrl || !channelName || !channelId) {
-      return NextResponse.json({ error: 'channelUrl, channelName, and channelId are required' }, { status: 400 })
+    if (!channelUrl) {
+      return NextResponse.json({ error: 'channelUrl is required' }, { status: 400 })
+    }
+
+    // Normalize channel ID: YouTube IDs start with UC (uppercase)
+    if (channelId && channelId.toLowerCase().startsWith('uc') && !channelId.startsWith('UC')) {
+      channelId = 'UC' + channelId.slice(2)
+    }
+
+    // Auto-resolve from URL if channelId is missing or looks wrong
+    if (!channelId || channelId.length < 10) {
+      try {
+        let fetchUrl = channelUrl.trim()
+        if (!fetchUrl.startsWith('http')) fetchUrl = `https://www.youtube.com/${fetchUrl.startsWith('@') ? fetchUrl : '@' + fetchUrl}`
+        const res = await fetch(fetchUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+          signal: AbortSignal.timeout(12_000),
+        })
+        if (res.ok) {
+          const html = await res.text()
+          const idMatch = html.match(/"externalId":"(UC[^"]{20,})"/) ?? html.match(/channel\/(UC[^"?&/]{20,})/)
+          if (idMatch?.[1]) channelId = idMatch[1]
+          if (!channelName) {
+            const nm = html.match(/"author":"([^"]+)"/) ?? html.match(/<title>([^<]+)<\/title>/)
+            channelName = nm?.[1]?.replace(' - YouTube', '').trim()
+          }
+        }
+      } catch { /* non-fatal — fall through */ }
+    }
+
+    if (!channelId) {
+      return NextResponse.json({ error: 'Could not determine channel ID. Use the Resolve button or paste the full YouTube channel URL.' }, { status: 400 })
     }
 
     const channel = await prisma.videoChannel.create({
       data: {
         userId,
         channelUrl,
-        channelName,
+        channelName: channelName ?? channelId,
         channelId,
         rssFeedUrl: rssFeedUrl ?? `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`,
         platform: platform as 'YOUTUBE' | 'TIKTOK' | 'INSTAGRAM' | 'PODCAST',
