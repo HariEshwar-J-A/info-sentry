@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, RefreshCw, Video, Settings, X, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Video, Settings, X, ChevronDown, MonitorPlay, ExternalLink } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 import { VideoCard } from '@/components/video/VideoCard'
 
@@ -46,6 +46,7 @@ export default function VideoFeedPage() {
   const [loading, setLoading] = useState(true)
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [configuringChannel, setConfiguringChannel] = useState<string | null>(null)
+  const [playInApp, setPlayInApp] = useState(false)
 
   // Add channel form state
   const [addUrl, setAddUrl] = useState('')
@@ -85,6 +86,19 @@ export default function VideoFeedPage() {
   }, [])
 
   useEffect(() => { void loadVideos(selectedChannel ?? undefined) }, [loadVideos, selectedChannel])
+
+  // Persist play preference
+  useEffect(() => {
+    const saved = localStorage.getItem('videoPlayInApp')
+    if (saved === 'true') setPlayInApp(true)
+  }, [])
+
+  function togglePlayInApp() {
+    setPlayInApp(prev => {
+      localStorage.setItem('videoPlayInApp', String(!prev))
+      return !prev
+    })
+  }
 
   async function handleResolve() {
     if (!addUrl.trim()) return
@@ -158,12 +172,30 @@ export default function VideoFeedPage() {
         title="Video Feed"
         subtitle={`${videos.length} videos`}
         actions={
-          <button
-            onClick={() => setShowAddChannel(!showAddChannel)}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '8px', border: '1px solid #2a2a2a', background: showAddChannel ? '#1a1a1a' : 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
-          >
-            <Plus size={14} /> Add Channel
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* Play mode toggle */}
+            <button
+              onClick={togglePlayInApp}
+              title={playInApp ? 'Playing in app — click to open on YouTube instead' : 'Opening on YouTube — click to play in app'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+                border: `1px solid ${playInApp ? 'rgba(99,102,241,0.4)' : '#2a2a2a'}`,
+                background: playInApp ? 'rgba(99,102,241,0.12)' : 'none',
+                color: playInApp ? '#a5b4fc' : '#555',
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
+            >
+              {playInApp ? <MonitorPlay size={13} /> : <ExternalLink size={13} />}
+              {playInApp ? 'Play in app' : 'Open on YouTube'}
+            </button>
+            <button
+              onClick={() => setShowAddChannel(!showAddChannel)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '8px', border: '1px solid #2a2a2a', background: showAddChannel ? '#1a1a1a' : 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+            >
+              <Plus size={14} /> Add Channel
+            </button>
+          </div>
         }
       />
 
@@ -383,6 +415,7 @@ export default function VideoFeedPage() {
               <VideoCard
                 key={video.id}
                 video={video}
+                playInApp={playInApp}
                 onViewed={(id) => setVideos(prev => prev.map(v => v.id === id ? { ...v, viewedAt: new Date().toISOString() } : v))}
               />
             ))}
