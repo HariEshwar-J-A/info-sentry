@@ -30,18 +30,19 @@ model User {
 
 // ─── Interest ───────────────────────────────────────────────
 model Interest {
-  id             String   @id @default(cuid())
-  userId         String
-  topic          String
-  description    String?
-  score          Float    @default(1.0)
-  isActive       Boolean  @default(true)
-  trackNews      Boolean  @default(true)
-  trackGithub    Boolean  @default(false)
-  searchKeywords String[] @default([])
-  lastEngagedAt  DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String
+  topic                 String
+  description           String?
+  score                 Float    @default(1.0)
+  isActive              Boolean  @default(true)
+  trackNews             Boolean  @default(true)
+  trackGithub           Boolean  @default(false)
+  searchKeywords        String[] @default([])
+  lastEngagedAt         DateTime?
+  notificationThreshold Float    @default(0.5)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   sources      InterestSource[]

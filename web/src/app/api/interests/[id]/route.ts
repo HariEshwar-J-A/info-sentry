@@ -30,6 +30,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       score?: number
       trackNews?: boolean
       trackGithub?: boolean
+      notificationThreshold?: number
     }
     const data = {
       ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
@@ -37,6 +38,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       ...(body.score !== undefined ? { score: body.score } : {}),
       ...(body.trackNews !== undefined ? { trackNews: body.trackNews } : {}),
       ...(body.trackGithub !== undefined ? { trackGithub: body.trackGithub } : {}),
+      ...(body.notificationThreshold !== undefined ? { notificationThreshold: Math.max(0, Math.min(1, body.notificationThreshold)) } : {}),
     }
     if (Object.keys(data).length === 0) {
       const row = await prisma.interest.findFirst({ where: { id, userId } })

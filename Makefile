@@ -5,7 +5,8 @@
 .PHONY: dev start stop restart status setup \
         db-up db-down db-reset db-generate db-migrate db-seed db-topics \
         db-shell db-logs docker-install \
-        pipeline scout github health budget bot logs help
+        pipeline scout github health budget bot logs help \
+        brief decay youtube
 
 # ── Service lifecycle ─────────────────────────────────────────────────────────
 dev:      ## Start DB + all app services in foreground (Ctrl+C kills everything)
@@ -86,6 +87,15 @@ scout:    ## Run the news scout (scrape sources)
 
 github:   ## Run the GitHub scout + analyst for all interests
 	npx tsx scripts/github-scout.ts && npx tsx scripts/github-analyst.ts
+
+youtube:  ## Scan YouTube channels + generate video summaries
+	npx tsx scripts/scout-youtube.ts && npx tsx scripts/video-analyst.ts
+
+brief:    ## Send personalized daily content brief to Telegram
+	npx tsx scripts/daily-brief.ts
+
+decay:    ## Apply 10% score decay to interests idle for ≥14 days
+	npx tsx scripts/interest-decay.ts --apply
 
 health:   ## Run the system health check
 	npm run health

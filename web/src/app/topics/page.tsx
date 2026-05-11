@@ -17,6 +17,8 @@ interface Interest {
   trackNews: boolean
   trackGithub: boolean
   searchKeywords: string[]
+  lastEngagedAt: string | null
+  notificationThreshold: number
   createdAt: string
   _count: { sources: number }
 }
@@ -569,6 +571,11 @@ function AddTopicForm({ onAdded }: { onAdded: (interest: Interest) => void }) {
 
 // ─── Interest Card ─────────────────────────────────────────
 
+function daysAgo(iso: string | null): number | null {
+  if (!iso) return null
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+}
+
 function InterestCard({ interest, onRemove, onRunCreated, onToggleTracking }: {
   interest: Interest
   onRemove: () => void
@@ -579,6 +586,23 @@ function InterestCard({ interest, onRemove, onRunCreated, onToggleTracking }: {
   const [showSources, setShowSources] = useState(false)
   const [runningNews, setRunningNews] = useState(false)
   const [runningGithub, setRunningGithub] = useState(false)
+  const [threshold, setThreshold] = useState(interest.notificationThreshold ?? 0.5)
+  const thresholdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const staleDays = daysAgo(interest.lastEngagedAt)
+  const isStale = staleDays !== null && staleDays >= 14
+
+  function handleThresholdChange(val: number) {
+    setThreshold(val)
+    if (thresholdTimer.current) clearTimeout(thresholdTimer.current)
+    thresholdTimer.current = setTimeout(() => {
+      fetch(`/api/interests/${interest.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationThreshold: val }),
+      }).catch(() => {})
+    }, 600)
+  }
 
   async function handleRemove() {
     setRemoving(true)
@@ -627,6 +651,12 @@ function InterestCard({ interest, onRemove, onRunCreated, onToggleTracking }: {
               ? <span style={{ fontSize: '10px', color: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>ACTIVE</span>
               : <span style={{ fontSize: '10px', color: '#555', backgroundColor: '#1a1a1a', borderRadius: '4px', padding: '1px 6px' }}>PAUSED</span>
             }
+            {isStale && (
+              <span title={`No engagement in ${staleDays} days — score decays weekly`}
+                style={{ fontSize: '10px', color: '#eab308', backgroundColor: 'rgba(234,179,8,0.1)', borderRadius: '4px', padding: '1px 6px', cursor: 'default' }}>
+                idle {staleDays}d
+              </span>
+            )}
           </div>
           {interest.description && (
             <div style={{ fontSize: '12px', color: '#8a8a8a', marginBottom: '4px' }}>{interest.description}</div>
@@ -634,6 +664,14 @@ function InterestCard({ interest, onRemove, onRunCreated, onToggleTracking }: {
           {interest.searchKeywords.length > 0 && (
             <div style={{ fontSize: '11px', color: '#555' }}>keywords: {interest.searchKeywords.slice(0, 5).join(', ')}</div>
           )}
+          {/* Notification threshold */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+            <span style={{ fontSize: '10px', color: '#555', minWidth: '80px' }}>Notify ≥ {Math.round(threshold * 100)}% relevance</span>
+            <input type="range" min={0} max={1} step={0.05} value={threshold}
+              onChange={e => handleThresholdChange(parseFloat(e.target.value))}
+              style={{ flex: 1, accentColor: '#6366f1', cursor: 'pointer', maxWidth: '120px' }}
+            />
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '5px', flexShrink: 0, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {interest.trackNews && (

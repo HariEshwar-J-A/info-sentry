@@ -18,6 +18,8 @@ export async function GET(req: Request) {
         trackNews: true,
         trackGithub: true,
         searchKeywords: true,
+        lastEngagedAt: true,
+        notificationThreshold: true,
         createdAt: true,
         _count: { select: { sources: true } },
       },

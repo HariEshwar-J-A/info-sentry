@@ -31,6 +31,8 @@ export function FeedClient({ articles: initialArticles, userTopics }: FeedClient
   const [bookmarkedArticles, setBookmarkedArticles] = useState<ArticleWithSummary[]>([])
   const [hours48, setHours48] = useState(false)
   const [newCount, setNewCount] = useState(0)
+  const [topicSuggestions, setTopicSuggestions] = useState<Array<{ topic: string; count: number }>>([])
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
   const knownIdsRef = useRef(new Set(initialArticles.map((a) => a.id)))
 
   // Auto-fill search from ?q= URL param (used by topic seed navigation)
@@ -92,6 +94,14 @@ export function FeedClient({ articles: initialArticles, userTopics }: FeedClient
       .then(d => setBookmarkedArticles(d as ArticleWithSummary[]))
       .catch(() => {})
   }, [showBookmarked])
+
+  // Fetch topic suggestions once on mount
+  useEffect(() => {
+    fetch('/api/feed/suggestions')
+      .then(r => r.json())
+      .then(d => setTopicSuggestions(d as Array<{ topic: string; count: number }>))
+      .catch(() => {})
+  }, [])
 
   const unreadCount = useMemo(() => articles.filter(a => !a.viewedAt).length, [articles])
 
@@ -172,6 +182,27 @@ export function FeedClient({ articles: initialArticles, userTopics }: FeedClient
             ✦ {newCount} new article{newCount !== 1 ? 's' : ''} available
           </span>
           <span style={{ fontSize: '12px', color: '#6366f1', fontWeight: 600 }}>Refresh →</span>
+        </div>
+      )}
+
+      {/* Topic discovery suggestions */}
+      {topicSuggestions.filter(s => !dismissedSuggestions.has(s.topic)).length > 0 && !showBookmarked && (
+        <div style={{ marginBottom: '16px', padding: '10px 14px', backgroundColor: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '12px', color: '#8a8a8a', flexShrink: 0 }}>Trending in your feed:</span>
+          {topicSuggestions.filter(s => !dismissedSuggestions.has(s.topic)).map(s => (
+            <div key={s.topic} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <a
+                href={`/topics?suggest=${encodeURIComponent(s.topic)}`}
+                style={{ fontSize: '12px', color: '#a5b4fc', textDecoration: 'none', fontWeight: 500 }}
+                title={`${s.count} articles about "${s.topic}" in the last 72h — click to track`}
+              >
+                + {s.topic} ({s.count})
+              </a>
+              <button onClick={() => setDismissedSuggestions(p => new Set([...p, s.topic]))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', fontSize: '11px', padding: '0 2px', lineHeight: 1 }}
+                title="Dismiss">×</button>
+            </div>
+          ))}
         </div>
       )}
 
