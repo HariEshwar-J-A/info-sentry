@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, Plus } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
@@ -29,7 +29,10 @@ interface VerifiedPrediction extends TrackedPrediction {
 
 interface AllPrediction {
   id: string
+  title: string | null
   content: string
+  category: string | null
+  isUserDefined: boolean
   confidence: number
   timeHorizon: string | null
   status: string
@@ -38,7 +41,7 @@ interface AllPrediction {
   resolutionAnalysis: string | null
   viewedAt: string | null
   createdAt: string
-  article: { id: string; title: string; url: string }
+  article: { id: string; title: string; url: string } | null
 }
 
 interface Stats {
@@ -89,6 +92,11 @@ function AnalysisBlock({ text }: { text: string }) {
   )
 }
 
+const BUCKET_STATUSES = ['PENDING', 'CORRECT', 'INCORRECT', 'PARTIALLY_CORRECT', 'EXPIRED'] as const
+const BUCKET_COLORS: Record<string, string> = {
+  PENDING: '#6366f1', CORRECT: '#22c55e', INCORRECT: '#ef4444', PARTIALLY_CORRECT: '#eab308', EXPIRED: '#555',
+}
+
 export default function PredictionsPage() {
   const [tab, setTab] = useState<'all' | 'tracked' | 'verifications' | 'stats'>('all')
   const [all, setAll] = useState<AllPrediction[]>([])
@@ -101,10 +109,19 @@ export default function PredictionsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [allSearch, setAllSearch] = useState('')
   const [allStatusFilter, setAllStatusFilter] = useState<'all' | 'PENDING' | 'CORRECT' | 'INCORRECT' | 'PARTIALLY_CORRECT'>('all')
+  const [bucketCounts, setBucketCounts] = useState<Record<string, number>>({})
 
   // Filters
   const [showUnreadOnly, setShowUnreadOnly] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'all' | 'PENDING' | 'resolved'>('all')
+
+  // Load bucket counts once
+  useEffect(() => {
+    fetch('/api/predictions/counts')
+      .then(r => r.json())
+      .then(d => setBucketCounts(d as Record<string, number>))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     setLoading(true)
@@ -161,7 +178,11 @@ export default function PredictionsPage() {
       if (allStatusFilter !== 'all' && p.status !== allStatusFilter) return false
       if (allSearch.trim()) {
         const q = allSearch.toLowerCase()
-        return p.content.toLowerCase().includes(q) || p.article.title.toLowerCase().includes(q)
+        return (
+          p.content.toLowerCase().includes(q) ||
+          (p.title ?? '').toLowerCase().includes(q) ||
+          (p.article?.title ?? '').toLowerCase().includes(q)
+        )
       }
       return true
     })
@@ -176,9 +197,48 @@ export default function PredictionsPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
-      <TopBar title="Predictions" subtitle="Track, verify, and learn from AI predictions" />
+      <TopBar
+        title="Predictions"
+        subtitle="Track, verify, and learn from AI predictions"
+        actions={
+          <Link href="/predictions/new" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
+            <Plus size={14} /> New Prediction
+          </Link>
+        }
+      />
 
       <div className="page-content">
+        {/* Bucket strip */}
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {BUCKET_STATUSES.map(s => {
+            const count = bucketCounts[s] ?? 0
+            const color = BUCKET_COLORS[s]
+            const active = allStatusFilter === s
+            return (
+              <button
+                key={s}
+                onClick={() => { setAllStatusFilter(active ? 'all' : s as typeof allStatusFilter); setTab('all') }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '5px 12px', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: 500,
+                  border: `1px solid ${active ? color : '#2a2a2a'}`,
+                  background: active ? `${color}18` : 'none',
+                  color: active ? color : '#555',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {s.replace('_', ' ')}
+                {count > 0 && (
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: active ? color : '#444' }}>{count}</span>
+                )}
+              </button>
+            )
+          })}
+          <Link href="/predictions/new" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(99,102,241,0.25)', background: 'rgba(99,102,241,0.07)', color: '#6366f1', fontSize: '12px', fontWeight: 600, textDecoration: 'none' }}>
+            <Plus size={12} /> New
+          </Link>
+        </div>
+
         {/* Tab bar */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '24px', backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
           {TABS.map(t => (
@@ -218,7 +278,8 @@ export default function PredictionsPage() {
 
             {filteredAll.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', color: '#555' }}>
-                <div style={{ fontSize: '14px' }}>{all.length === 0 ? 'No predictions yet — run the pipeline to generate some' : 'No predictions match your filter'}</div>
+                <div style={{ fontSize: '14px', marginBottom: '8px' }}>{all.length === 0 ? 'No predictions yet' : 'No predictions match your filter'}</div>
+                {all.length === 0 && <Link href="/predictions/new" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#6366f1', color: '#fff', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}><Plus size={14} /> Create your first prediction</Link>}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -228,23 +289,34 @@ export default function PredictionsPage() {
                   const emoji = pred.confidence > 0.7 ? 'High' : pred.confidence > 0.5 ? 'Med' : 'Low'
                   return (
                     <div key={pred.id} style={{ backgroundColor: '#111', border: `1px solid ${statusColor[pred.status] ? statusColor[pred.status] + '33' : '#1f1f1f'}`, borderRadius: '12px', overflow: 'hidden' }}>
-                      <div style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: '12px' }} onClick={() => setExpandedId(isOpen ? null : pred.id)}>
+                      <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '12px', color: statusColor[pred.status] ?? '#8a8a8a', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                               {verdictIcon[pred.status] ?? null} {pred.status.replace('_', ' ')}
                             </span>
-                            <span style={{ fontSize: '11px', color: '#555' }}>{emoji} {confidencePct}% · {pred.timeHorizon ?? 'no horizon'}</span>
+                            <span style={{ fontSize: '10px', color: pred.isUserDefined ? '#a5b4fc' : '#444', backgroundColor: pred.isUserDefined ? 'rgba(99,102,241,0.1)' : '#1a1a1a', borderRadius: '4px', padding: '1px 6px' }}>
+                              {pred.isUserDefined ? 'You' : 'AI'}
+                            </span>
+                            {pred.category && <span style={{ fontSize: '10px', color: '#555', backgroundColor: '#1a1a1a', borderRadius: '4px', padding: '1px 6px' }}>{pred.category}</span>}
+                            <span style={{ fontSize: '11px', color: '#555' }}>{emoji} {confidencePct}% · {pred.timeHorizon ?? '—'}</span>
                             {pred.trackedByUser && <span style={{ fontSize: '10px', color: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)', borderRadius: '4px', padding: '1px 6px' }}>tracked</span>}
-                            <span style={{ fontSize: '10px', color: '#444' }}>{formatDate(pred.createdAt)}</span>
+                            <span style={{ fontSize: '10px', color: '#444', marginLeft: 'auto' }}>{formatDate(pred.createdAt)}</span>
                           </div>
+                          {pred.title && <div style={{ fontSize: '13px', color: '#f0f0f0', fontWeight: 600, marginBottom: '4px' }}>{pred.title}</div>}
                           <div style={{ fontSize: '13px', color: '#d0d0d0', lineHeight: '1.5', marginBottom: '6px' }}>{pred.content}</div>
-                          <Link href={`/article/${pred.article.id}`} style={{ fontSize: '11px', color: '#555', textDecoration: 'none' }}
-                            onClick={e => e.stopPropagation()}>
-                            ↗ {pred.article.title.slice(0, 60)}{pred.article.title.length > 60 ? '…' : ''}
-                          </Link>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <Link href={`/predictions/${pred.id}`} style={{ fontSize: '11px', color: '#6366f1', textDecoration: 'none', fontWeight: 600 }} onClick={e => e.stopPropagation()}>
+                              View dashboard →
+                            </Link>
+                            {pred.article && (
+                              <Link href={`/article/${pred.article.id}`} style={{ fontSize: '11px', color: '#555', textDecoration: 'none' }} onClick={e => e.stopPropagation()}>
+                                ↗ {pred.article.title.slice(0, 50)}{(pred.article.title.length > 50) ? '…' : ''}
+                              </Link>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ color: '#555', fontSize: '12px', flexShrink: 0 }}>{isOpen ? '▲' : '▼'}</div>
+                        <button onClick={() => setExpandedId(isOpen ? null : pred.id)} style={{ color: '#555', fontSize: '12px', flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer' }}>{isOpen ? '▲' : '▼'}</button>
                       </div>
                       {isOpen && pred.resolutionAnalysis && (
                         <div style={{ borderTop: '1px solid #1a1a1a', padding: '14px 16px' }}>

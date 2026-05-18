@@ -26,6 +26,9 @@ export async function GET(request: Request) {
       take: limit,
       select: {
         id: true,
+        title: true,
+        category: true,
+        isUserDefined: true,
         content: true,
         confidence: true,
         timeHorizon: true,

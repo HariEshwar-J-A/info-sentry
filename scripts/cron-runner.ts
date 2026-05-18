@@ -24,7 +24,7 @@ const REPO_ROOT = resolve(import.meta.dirname, '..')
 const AGENT_SCRIPTS: Record<string, { script: string; defaultCron: string | null; args?: string[] }> = {
   'scout':               { script: 'scripts/scout-run.ts',            defaultCron: '0 */6 * * *' },
   'analyst':             { script: 'scripts/analyst-run.ts',          defaultCron: '30 */6 * * *' },
-  'prediction':          { script: 'scripts/predictor-run.ts',        defaultCron: '0 */12 * * *' },
+  'prediction':          { script: 'scripts/predictor-run.ts',        defaultCron: null },  // manual-only
   'prediction-verifier': { script: 'scripts/prediction-verifier.ts',  defaultCron: '0 */6 * * *' },
   'github-scout':        { script: 'scripts/github-scout.ts',         defaultCron: '0 */12 * * *' },
   'github-analyst':      { script: 'scripts/github-analyst.ts',       defaultCron: '30 */12 * * *' },
@@ -103,6 +103,13 @@ async function loadSchedules() {
     // Explicit non-null DB value wins; null or missing → use defaultCron
     const fromDb = scheduleMap.get(name)
     const effective = (fromDb !== undefined && fromDb !== null) ? fromDb : def.defaultCron
+
+    // Manual-only agents (defaultCron === null) must never be auto-scheduled
+    if (def.defaultCron === null) {
+      const existing = tasks.get(name)
+      if (existing) { existing.stop(); tasks.delete(name); taskExpressions.delete(name) }
+      continue
+    }
 
     const existing = tasks.get(name)
     const existingExpr = taskExpressions.get(name) ?? null

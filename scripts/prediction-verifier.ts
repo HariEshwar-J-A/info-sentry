@@ -156,12 +156,15 @@ async function verifyPrediction(
     dueDate: Date | null;
     trackedByUser: boolean;
     createdAt: Date;
-    articleId: string;
+    articleId: string | null;
+    category: string | null;
+    title: string | null;
+    isUserDefined: boolean;
     article: {
       title: string;
       url: string;
       summary: { content: string; keyTopics: string[] } | null;
-    };
+    } | null;
   },
   recentArticles: {
     source: { name: string; trustScore: number };
@@ -169,7 +172,9 @@ async function verifyPrediction(
     scrapedAt: Date;
   }[],
 ): Promise<VerdictResponse | null> {
-  const predTopics = prediction.article.summary?.keyTopics ?? [];
+  // For user-defined predictions without an article, derive topics from content + category
+  const predTopics = prediction.article?.summary?.keyTopics ??
+    (prediction.category ? [prediction.category] : prediction.content.split(/\s+/).slice(0, 5))
 
   // Filter relevant recent articles by topic overlap
   const relevant = recentArticles
@@ -189,8 +194,11 @@ async function verifyPrediction(
   const searchQuery = `${prediction.content.slice(0, 120)} ${predTopics.slice(0, 3).join(" ")}`;
   const searchResults = await duckduckgoSearch(searchQuery, 5);
 
-  // Also search for article title to see if there are follow-ups
-  const titleResults = await duckduckgoSearch(`${prediction.article.title.slice(0, 80)} latest news`, 3);
+  // Also search for article title (if exists) or prediction title for follow-ups
+  const followUpQuery = prediction.article
+    ? `${prediction.article.title.slice(0, 80)} latest news`
+    : `${(prediction.title ?? prediction.content).slice(0, 80)} news`;
+  const titleResults = await duckduckgoSearch(followUpQuery, 3);
   const allResults = [...searchResults, ...titleResults];
 
   const searchCtx = allResults.length > 0
@@ -199,14 +207,17 @@ async function verifyPrediction(
       ).join("\n\n---\n\n")
     : "No web search results.";
 
+  const sourceContext = prediction.article
+    ? `Source article: "${prediction.article.title}"\nSource URL: ${prediction.article.url}`
+    : `User prediction — no source article\nCategory: ${prediction.category ?? "unspecified"}`;
+
   const userPrompt = `PREDICTION TO VERIFY:
 Text: "${prediction.content}"
 Original confidence: ${Math.round(prediction.confidence * 100)}%
 Time horizon: ${prediction.timeHorizon ?? "unspecified"}
 Created: ${prediction.createdAt.toISOString().slice(0, 10)}
 Due date: ${prediction.dueDate?.toISOString().slice(0, 10) ?? "not set"}
-Source article: "${prediction.article.title}"
-Source URL: ${prediction.article.url}
+${sourceContext}
 Key topics: ${predTopics.join(", ")}
 
 RECENT DATABASE ARTICLES (last 48h, topic-matched):
@@ -261,17 +272,30 @@ async function main(): Promise<void> {
     console.log(`[verifier] Web scope: predictions + article context for user ${pipelineUserId}`);
   }
 
-  // Get PENDING predictions eligible for verification
+  // Get PENDING predictions eligible for verification:
+  // - AI-generated: tracked by user OR due within 7 days (scoped to user's articles)
+  // - User-defined: always eligible when PENDING
   const predictions = await db.prediction.findMany({
     where: {
       status: "PENDING",
       OR: [
-        { trackedByUser: true },
-        { dueDate: { lte: in7Days } },
+        // AI-generated tracked or due soon
+        {
+          isUserDefined: false,
+          OR: [{ trackedByUser: true }, { dueDate: { lte: in7Days } }],
+          ...(articleScopeUser ? { article: articleScopeUser } : {}),
+        },
+        // User-defined predictions (always verify if PENDING)
+        {
+          isUserDefined: true,
+          ...(pipelineUserId ? { userId: pipelineUserId } : {}),
+        },
       ],
-      ...(articleScopeUser ? { article: articleScopeUser } : {}),
     },
-    include: {
+    select: {
+      id: true, content: true, confidence: true, timeHorizon: true,
+      dueDate: true, trackedByUser: true, createdAt: true,
+      articleId: true, userId: true, title: true, category: true, isUserDefined: true,
       article: {
         select: {
           title: true,
@@ -325,6 +349,17 @@ async function main(): Promise<void> {
 
       if (result.verdict === "NO_EVIDENCE_YET") {
         noEvidence++;
+        // Still update AI analysis so dashboard shows current reasoning
+        if (!DRY_RUN) {
+          await db.prediction.update({
+            where: { id: prediction.id },
+            data: {
+              aiConfidence: result.confidence,
+              aiAnalysis: result.resolutionAnalysis,
+              lastAnalyzedAt: now,
+            },
+          });
+        }
         continue;
       }
 
@@ -346,22 +381,58 @@ async function main(): Promise<void> {
         result.reliableSources.length > 0 ? `**Reliable sources:** ${result.reliableSources.slice(0, 3).join(", ")}` : null,
       ].filter(Boolean).join("\n\n");
 
-      // Update prediction
-      await db.prediction.update({
-        where: { id: prediction.id },
-        data: {
-          status: result.verdict,
-          resolvedAt: now,
-          outcome: result.verdict,
-          resolutionAnalysis: fullAnalysis,
-        },
-      });
+      // Resolve prediction + confidence log in transaction
+      await db.$transaction([
+        db.prediction.update({
+          where: { id: prediction.id },
+          data: {
+            status: result.verdict,
+            resolvedAt: now,
+            outcome: result.verdict,
+            resolutionAnalysis: fullAnalysis,
+            aiConfidence: result.confidence,
+            aiAnalysis: result.resolutionAnalysis,
+            lastAnalyzedAt: now,
+          },
+        }),
+        db.predictionConfidenceLog.create({
+          data: {
+            predictionId: prediction.id,
+            confidence: result.confidence,
+            source: "ai_evidence",
+            note: `Verdict: ${result.verdict}`,
+          },
+        }),
+      ]);
+
+      // Save evidence records from key evidence + reliable sources
+      for (const evidenceText of result.keyEvidence.slice(0, 3)) {
+        await db.predictionEvidence.create({
+          data: {
+            predictionId: prediction.id,
+            impact: result.verdict === "CORRECT" ? 0.8 : result.verdict === "INCORRECT" ? -0.8 : 0.3,
+            summary: evidenceText.slice(0, 500),
+          },
+        }).catch(() => {}); // ignore duplicates
+      }
+      // Save reliable web sources as evidence
+      for (const sourceUrl of result.reliableSources.slice(0, 2)) {
+        await db.predictionEvidence.create({
+          data: {
+            predictionId: prediction.id,
+            url: sourceUrl,
+            impact: result.verdict === "CORRECT" ? 0.7 : result.verdict === "INCORRECT" ? -0.7 : 0.2,
+            summary: `Reliable source cited by AI verifier for verdict: ${result.verdict}`,
+          },
+        }).catch(() => {});
+      }
 
       // Create notification
+      const targetUserId = prediction.userId ?? notificationUserId;
       const emoji = result.verdict === "CORRECT" ? "✅" : result.verdict === "INCORRECT" ? "❌" : "🔶";
       await db.notification.create({
         data: {
-          userId: notificationUserId,
+          userId: targetUserId,
           type: "PREDICTION_VERIFIED",
           title: `${emoji} Prediction ${result.verdict.replace(/_/g, " ")}`,
           body: prediction.content.slice(0, 120) + (prediction.content.length > 120 ? "…" : ""),
@@ -375,6 +446,9 @@ async function main(): Promise<void> {
       });
 
       // Telegram notification
+      const sourceLabel = prediction.article
+        ? `From: ${prediction.article.title.slice(0, 80)}`
+        : prediction.title ? `Prediction: ${prediction.title.slice(0, 80)}` : "";
       await sendTelegram(
         `${emoji} <b>Prediction Verified</b>\n\n` +
         `<b>Verdict:</b> ${result.verdict.replace(/_/g, " ")} (${Math.round(result.confidence * 100)}% sure)\n\n` +
@@ -382,7 +456,7 @@ async function main(): Promise<void> {
         `<b>Analysis:</b>\n${result.resolutionAnalysis.slice(0, 600)}\n\n` +
         (result.whatWasRight ? `✓ <b>Right:</b> ${result.whatWasRight.slice(0, 150)}\n` : "") +
         (result.whatWasWrong ? `✗ <b>Wrong:</b> ${result.whatWasWrong.slice(0, 150)}\n` : "") +
-        `\n<b>From:</b> ${prediction.article.title.slice(0, 80)}`
+        (sourceLabel ? `\n<b>${sourceLabel}</b>` : "")
       );
 
       verified++;

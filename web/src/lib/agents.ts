@@ -46,11 +46,11 @@ export const AGENT_DEFS: Record<string, {
   },
   prediction: {
     label: 'Predictor',
-    description: 'Generates predictions from SUMMARIZED articles → posts to Telegram',
+    description: 'Generates AI predictions from SUMMARIZED articles — run manually from Settings when needed',
     icon: '🎯',
     script: 'scripts/predictor-run.ts',
     defaultModel: 'moonshotai/kimi-k2.6',
-    defaultCron: '0 */12 * * *',
+    defaultCron: null,
     group: 'news',
   },
   'prediction-verifier': {

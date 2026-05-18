@@ -45,7 +45,7 @@ export async function POST(
             content: `This prediction was marked as ${resolutionLabel}:
 
 Prediction: "${prediction.content}"
-Article: "${prediction.article.title}"
+${prediction.article ? `Article: "${prediction.article.title}"` : `Title: "${prediction.title ?? prediction.content.slice(0, 80)}"`}
 Confidence was: ${Math.round(prediction.confidence * 100)}%
 Time horizon: ${prediction.timeHorizon ?? 'unspecified'}
 
@@ -60,16 +60,28 @@ In 2-3 sentences, analyze what factors likely contributed to this outcome. Be sp
       resolutionAnalysis = `Prediction marked as ${resolutionLabel}.`
     }
 
-    const updated = await prisma.prediction.update({
-      where: { id },
-      data: {
-        status: resolution,
-        resolvedAt: new Date(),
-        outcome: resolution,
-        resolutionAnalysis,
-        ...(userNotes ? { userNotes } : {}),
-      },
-    })
+    const finalConfidence = resolution === 'CORRECT' ? 0.95 : resolution === 'INCORRECT' ? 0.05 : 0.5
+    const [updated] = await prisma.$transaction([
+      prisma.prediction.update({
+        where: { id },
+        data: {
+          status: resolution,
+          resolvedAt: new Date(),
+          outcome: resolution,
+          resolutionAnalysis,
+          aiConfidence: finalConfidence,
+          ...(userNotes ? { userNotes } : {}),
+        },
+      }),
+      prisma.predictionConfidenceLog.create({
+        data: {
+          predictionId: id,
+          confidence: finalConfidence,
+          source: 'manual_resolve',
+          note: `Manually resolved as ${resolutionLabel}`,
+        },
+      }),
+    ])
 
     return Response.json({ success: true, resolutionAnalysis, prediction: updated })
   } catch (err) {
