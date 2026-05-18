@@ -1,27 +1,123 @@
+# ─────────────────────────────────────────────────────────────
+#  Info-Sentry infrastructure services
+#  Run: docker compose up -d
+#  Stop: docker compose down
+#
+#  Security model:
+#  • All ports bind to 127.0.0.1 only — never exposed to the network
+#  • Postgres runs as a non-root user (postgres uid=70 in alpine image)
+#  • No inter-service traffic except on the internal `infosentry` network
+#  • Persistent data in named volumes (survive restarts, survives `down`)
+#  • `down --volumes` explicitly required to wipe data (no accidental loss)
+# ─────────────────────────────────────────────────────────────
+
+name: infosentry
+
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────
   postgres:
     image: postgres:17-alpine
+    container_name: infosentry-db
     restart: unless-stopped
+    user: "70:70"                          # postgres user in alpine — non-root
     environment:
-      POSTGRES_DB: infosentry
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB:       infosentry
+      POSTGRES_USER:     ${POSTGRES_USER:-infosentry}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"             # localhost only — never 0.0.0.0
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./prisma/roles.sql:/docker-entrypoint-initdb.d/roles.sql
+      - ./prisma/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - infosentry
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-infosentry} -d infosentry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Resource limits — prevents runaway queries from starving the host
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
 
+  # ── ChromaDB ────────────────────────────────────────────────
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.6.3          # pinned — not :latest
+    container_name: infosentry-chroma
     restart: unless-stopped
+    environment:
+      IS_PERSISTENT:        "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+      CHROMA_SERVER_AUTHN_CREDENTIALS_FILE: ""   # auth handled at app level
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"             # localhost only
     volumes:
       - chromadata:/chroma/chroma
-    environment:
-      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - infosentry
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')\" 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 64M
 
+  # ── ScrapeGraphAI sidecar (LLM-assisted scraping — localhost only) ──
+  scrapegraph:
+    build:
+      context: ./services/scrapegraph
+      dockerfile: Dockerfile
+    container_name: infosentry-scrapegraph
+    restart: unless-stopped
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      SGAI_MODEL: ${SGAI_MODEL:-google/gemini-2.0-flash-001}
+      SGAI_HEADLESS: ${SGAI_HEADLESS:-true}
+      SGAI_VERBOSE: ${SGAI_VERBOSE:-false}
+      SCRAPEGRAPHAI_TELEMETRY_ENABLED: "false"
+    ports:
+      - "127.0.0.1:8811:8811"
+    networks:
+      - infosentry
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8811/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 256M
+
+# ── Shared network (internal — not exposed) ─────────────────
+networks:
+  infosentry:
+    driver: bridge
+    internal: false                        # set true if app also runs in Docker
+
+# ── Persistent volumes ───────────────────────────────────────
 volumes:
   pgdata:
+    driver: local
+    labels:
+      com.infosentry.description: "PostgreSQL data — do not delete without backup"
   chromadata:
+    driver: local
+    labels:
+      com.infosentry.description: "ChromaDB embeddings — deletable (can be rebuilt)"

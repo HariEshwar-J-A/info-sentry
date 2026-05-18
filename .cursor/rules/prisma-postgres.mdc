@@ -1,0 +1,21 @@
+---
+description: PostgreSQL ownership vs DATABASE_URL; Prisma migrate; web user scoping
+alwaysApply: true
+---
+
+# Info-Sentry — database and multi-user conventions
+
+## Prisma / PostgreSQL migrations
+
+- `DATABASE_URL` often uses **`openclaw_role`**; Docker-created tables may be **owned by `infosentry`**. Only the owner can `ALTER TABLE`.
+- If **`prisma migrate deploy`** or **`make db-migrate`** fails with **`must be owner of table …`**, run migrations as **`infosentry`** (see `README.md` → Database migrations) or apply SQL as owner and then `prisma migrate resolve --applied "<name>"`.
+- After a failed migration, **`prisma migrate resolve --rolled-back "<name>"`** may be needed before retrying.
+
+## Web API user scope
+
+- Authenticated requests carry **`x-user-id`** (Prisma `User.id` from the session). Use **`requireUserId`** / scoped queries; do not assume a single global `OWNER_USER_ID` for user-owned rows.
+- Google OAuth maps to **`User.googleSub`**; telegram users use **`telegramId`**.
+
+## References
+
+- [MEMORY.md](MEMORY.md), [README.md](README.md)

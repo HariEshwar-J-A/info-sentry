@@ -14,10 +14,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "noUncheckedIndexedAccess": true,
-    "paths": {
-      "@prisma/openclaw-client": ["./node_modules/@prisma/openclaw-client"],
-      "@prisma/scout-client": ["./node_modules/@prisma/scout-client"]
-    }
+    "paths": {}
   },
   "include": ["scripts/**/*", "prisma/seed.ts"],
   "exclude": ["node_modules", "dist"]

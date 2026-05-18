@@ -2,25 +2,34 @@
   "$schema": "https://openclaw.dev/schema/v1/cron.json",
   "jobs": [
     {
-      "name": "scout-scrape",
-      "schedule": "0 */2 * * *",
-      "description": "Scrape sources for new articles every 2 hours at :00",
-      "agent": "scout",
-      "exec": "npx tsx scripts/scout-run.ts"
-    },
-    {
-      "name": "pipeline-process",
-      "schedule": "15 */2 * * *",
-      "description": "Analyze + predict + post scraped articles every 2 hours at :15",
-      "agent": "analyst",
-      "exec": "npx tsx scripts/pipeline-run.ts"
-    },
-    {
-      "name": "health-check",
-      "schedule": "*/15 * * * *",
-      "description": "System health check every 15 minutes",
+      "name": "daily-digest",
+      "schedule": "0 9 * * *",
+      "description": "Send daily summary at 9 AM (once per day, budget-friendly)",
       "agent": "manager",
-      "exec": "npx tsx scripts/health-check.ts"
+      "exec": "npx tsx scripts/daily-digest.ts"
+    },
+    {
+      "name": "scout-hourly",
+      "schedule": "*/30 * * * *",
+      "description": "Scout run every 30 minutes for fresh articles",
+      "agent": "scout",
+      "exec": "npx tsx scripts/scout-run.ts",
+      "condition": "budgetCheck"
+    },
+    {
+      "name": "pipeline-hourly",
+      "schedule": "10,40 * * * *",
+      "description": "Process scraped articles at :10 and :40 (after each scout run)",
+      "agent": "analyst",
+      "exec": "npx tsx scripts/pipeline-run.ts",
+      "condition": "budgetCheck"
+    },
+    {
+      "name": "system-log",
+      "schedule": "*/30 * * * *",
+      "description": "Post health snapshot to System-Log supergroup topic every 30 minutes",
+      "agent": "manager",
+      "exec": "npx tsx scripts/system-log-post.ts"
     },
     {
       "name": "budget-check",
@@ -28,6 +37,21 @@
       "description": "Budget status report every 6 hours",
       "agent": "manager",
       "exec": "npx tsx scripts/budget-check.ts"
+    },
+    {
+      "name": "auto-approve-high-confidence",
+      "schedule": "0 10 * * *",
+      "description": "Auto-approve high-confidence predictions",
+      "agent": "manager",
+      "exec": "npx tsx scripts/validation-queue.ts --action=auto-approve-high-confidence"
+    },
+    {
+      "name": "prediction-verifier",
+      "schedule": "0 */6 * * *",
+      "description": "Verify tracked predictions against recent news (kimi-k2.6 reasoning) at 00:00, 06:00, 12:00, 18:00",
+      "agent": "verifier",
+      "exec": "npx tsx scripts/prediction-verifier.ts",
+      "condition": "budgetCheck"
     }
   ]
 }

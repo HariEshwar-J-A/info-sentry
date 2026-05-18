@@ -1,6 +1,6 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "../node_modules/@prisma/openclaw-client"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -11,7 +11,11 @@ datasource db {
 // ─── User ───────────────────────────────────────────────────
 model User {
   id         String   @id @default(cuid())
-  telegramId String   @unique
+  telegramId String?  @unique // Telegram bot users only
+  googleSub  String?  @unique // Google OAuth subject (web sign-in)
+  email      String?  @unique
+  name       String?
+  picture    String?
   username   String?
   isAdmin    Boolean  @default(false)
   createdAt  DateTime @default(now())
@@ -21,21 +25,28 @@ model User {
   chatMessages ChatMessage[]
 
   @@index([telegramId])
+  @@index([googleSub])
 }
 
 // ─── Interest ───────────────────────────────────────────────
 model Interest {
-  id          String   @id @default(cuid())
-  userId      String
-  topic       String
-  description String?
-  score       Float    @default(1.0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String
+  topic                 String
+  description           String?
+  score                 Float    @default(1.0)
+  isActive              Boolean  @default(true)
+  trackNews             Boolean  @default(true)
+  trackGithub           Boolean  @default(false)
+  searchKeywords        String[] @default([])
+  lastEngagedAt         DateTime?
+  notificationThreshold Float    @default(0.5)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sources InterestSource[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources      InterestSource[]
+  pipelineRuns PipelineRun[]
 
   @@unique([userId, topic])
   @@index([isActive])
@@ -65,6 +76,7 @@ enum SourceType {
   WEB
   RSS
   API
+  GITHUB
 }
 
 enum CrawlMethod {
@@ -87,24 +99,30 @@ model InterestSource {
 
 // ─── Article ────────────────────────────────────────────────
 model Article {
-  id          String        @id @default(cuid())
-  sourceId    String
-  url         String        @unique
-  title       String
-  rawFilePath String?
-  status      ArticleStatus @default(SCRAPED)
-  scrapedAt   DateTime      @default(now())
-  analyzedAt  DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id             String         @id @default(cuid())
+  sourceId       String
+  url            String         @unique
+  title          String
+  rawFilePath    String?
+  status         ArticleStatus  @default(SCRAPED)
+  publishedAt    DateTime?
+  dateConfidence DateConfidence @default(UNKNOWN)
+  ageHours       Float?
+  viewedAt       DateTime?
+  scrapedAt      DateTime       @default(now())
+  analyzedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  source      Source       @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  source      Source         @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   summary     Summary?
   predictions Prediction[]
+  insight     ArticleInsight?
 
   @@index([scrapedAt])
   @@index([status])
   @@index([createdAt])
+  @@index([publishedAt])
   @@index([sourceId, scrapedAt])
 }
 
@@ -114,6 +132,12 @@ enum ArticleStatus {
   SUMMARIZED
   POSTED
   FAILED
+}
+
+enum DateConfidence {
+  EXTRACTED
+  INFERRED
+  UNKNOWN
 }
 
 // ─── Summary ────────────────────────────────────────────────
@@ -134,22 +158,29 @@ model Summary {
 
 // ─── Prediction ─────────────────────────────────────────────
 model Prediction {
-  id              String           @id @default(cuid())
-  articleId       String
-  content         String
-  confidence      Float
-  timeHorizon     String?
-  status          PredictionStatus @default(PENDING)
-  telegramMsgId   Int?
-  telegramTopicId Int?
-  createdAt       DateTime         @default(now())
-  resolvedAt      DateTime?
-  outcome         String?
+  id                 String           @id @default(cuid())
+  articleId          String
+  content            String
+  confidence         Float
+  timeHorizon        String?
+  status             PredictionStatus @default(PENDING)
+  telegramMsgId      Int?
+  telegramTopicId    Int?
+  trackedByUser      Boolean          @default(false)
+  trackedAt          DateTime?
+  userNotes          String?
+  dueDate            DateTime?
+  resolutionAnalysis String?
+  viewedAt           DateTime?
+  createdAt          DateTime         @default(now())
+  resolvedAt         DateTime?
+  outcome            String?
 
   article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([createdAt])
+  @@index([trackedByUser])
 }
 
 enum PredictionStatus {
@@ -160,7 +191,138 @@ enum PredictionStatus {
   EXPIRED
 }
 
-// ─── ChatMessage ────────────────────────────────────────────
+// ─── ArticleInsight (user chat metadata per article) ────────
+model ArticleInsight {
+  id            String    @id @default(cuid())
+  articleId     String    @unique
+  userId        String
+  chatSummary   String?
+  userSentiment String?
+  keywords      String[]  @default([])
+  rawChatLog    Json?
+  bookmarkedAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, bookmarkedAt])
+  @@index([articleId])
+}
+
+// ─── UserFeedback (signal history) ──────────────────────────
+model UserFeedback {
+  id        String         @id @default(cuid())
+  userId    String
+  articleId String
+  signal    FeedbackSignal
+  topics    String[]       @default([])
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, signal])
+  @@index([articleId])
+}
+
+enum FeedbackSignal {
+  LIKE
+  DISLIKE
+  BOOKMARK
+  UNBOOKMARK
+  SKIP
+}
+
+// ─── WebChatSession (persistent web AI chat) ────────────────
+model WebChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages WebChatMessage[]
+
+  @@index([userId, createdAt])
+}
+
+model WebChatMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  role      MessageRole
+  content   String
+  createdAt DateTime    @default(now())
+
+  session WebChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+// ─── MediaContent (Video/Audio transcripts) ─────────────────
+model MediaContent {
+  id          String    @id @default(cuid())
+  articleId   String
+  type        MediaType
+  url         String
+  title       String?
+  duration    String?
+  transcript  String?
+  extractedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@index([articleId, type])
+  @@index([createdAt])
+}
+
+enum MediaType {
+  VIDEO
+  AUDIO
+  PODCAST
+}
+
+// ─── Validation Queue (Human-in-the-loop) ───────────────────
+model ValidationQueue {
+  id           String           @id @default(cuid())
+  predictionId String
+  articleId    String
+  summary      String
+  predictions  Json
+  confidence   Float
+  status       ValidationStatus @default(PENDING)
+  submittedAt  DateTime         @default(now())
+  resolvedAt   DateTime?
+  postedAt     DateTime?
+  resolvedBy   String?
+
+  @@index([status])
+  @@index([submittedAt])
+  @@index([confidence])
+}
+
+enum ValidationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  AUTO_APPROVED
+}
+
+// ─── Prediction Outcome Tracking ────────────────────────────
+model PredictionOutcome {
+  id              String    @id @default(cuid())
+  predictionId    String
+  expectedOutcome String
+  actualOutcome   String?
+  accuracyScore   Float?
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  @@index([predictionId])
+  @@index([verifiedAt])
+}
+
+// ─── ChatMessage (Telegram bot history) ─────────────────────
 model ChatMessage {
   id        String      @id @default(cuid())
   userId    String
@@ -208,10 +370,169 @@ model CostLog {
   @@index([createdAt])
 }
 
+// ─── Budget Status ──────────────────────────────────────────
+model BudgetStatus {
+  id             String   @id @default(cuid())
+  month          Int
+  year           Int
+  budgetUsd      Float
+  spentUsd       Float    @default(0)
+  dailyBudgetUsd Float
+  currentTier    Int      @default(2)
+  lastCheckAt    DateTime @default(now())
+  alertsSent     String[] @default([])
+
+  @@unique([year, month])
+}
+
+// ─── Notification ────────────────────────────────────────────
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json             @default("{}")
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+enum NotificationType {
+  NEW_ARTICLE
+  NEW_PREDICTION
+  PREDICTION_VERIFIED
+  SYSTEM
+}
+
 // ─── ForumTopic ─────────────────────────────────────────────
 model ForumTopic {
   id              String   @id @default(cuid())
   name            String   @unique
   telegramTopicId Int      @unique
   createdAt       DateTime @default(now())
+}
+
+// ─── GitHub Repository ───────────────────────────────────────
+model GitHubRepo {
+  id          String    @id @default(cuid())
+  interestId  String?   // which topic triggered the discovery
+  owner       String
+  repoName    String
+  fullName    String    @unique  // "owner/repo"
+  description String?
+  url         String    @unique  // https://github.com/owner/repo
+  stars       Int       @default(0)
+  forks       Int       @default(0)
+  watchers    Int       @default(0)
+  language    String?
+  topics      String[]  @default([])
+  readme        String?   // truncated README (up to 8000 chars)
+  aiSummary     String?   // AI-generated summary from README
+  defaultBranch String    @default("main")
+  lastPushed    DateTime?
+  viewedAt      DateTime?
+  previousStars Int?      // stars on previous fetch
+  previousForks Int?      // forks on previous fetch
+  starDelta     Int       @default(0)
+  forkDelta     Int       @default(0)
+  fetchCount    Int       @default(1)
+  scrapedAt     DateTime  @default(now())
+  notifiedAt    DateTime?                // set after posting to Telegram GitHub-Feed
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([stars])
+  @@index([forks])
+  @@index([starDelta])
+  @@index([interestId, stars])
+  @@index([language])
+  @@index([scrapedAt])
+  @@index([lastPushed])
+}
+
+model PipelineRun {
+  id           String       @id @default(cuid())
+  interestId   String?
+  kind         PipelineKind
+  status       RunStatus    @default(RUNNING)
+  startedAt    DateTime     @default(now())
+  finishedAt   DateTime?
+  exitCode     Int?
+  errorMessage String?
+  stats        Json?
+  logTail      String?      @db.Text
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  interest Interest? @relation(fields: [interestId], references: [id], onDelete: SetNull)
+
+  @@index([interestId, startedAt])
+  @@index([status])
+  @@index([kind, startedAt])
+}
+
+enum PipelineKind {
+  NEWS
+  GITHUB
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+// ─── VideoChannel (YouTube / social media) ───────────────────
+model VideoChannel {
+  id          String        @id @default(cuid())
+  userId      String
+  platform    VideoPlatform @default(YOUTUBE)
+  channelId   String
+  channelName String
+  channelUrl  String        @unique
+  rssFeedUrl  String?
+  isActive    Boolean       @default(true)
+  lastScanned DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  videos VideoItem[]
+
+  @@index([userId, isActive])
+  @@index([platform])
+}
+
+model VideoItem {
+  id          String      @id @default(cuid())
+  channelId   String
+  videoId     String
+  title       String
+  description String?
+  url         String      @unique
+  thumbnailUrl String?
+  duration    String?
+  publishedAt DateTime?
+  transcript  String?
+  aiSummary   String?
+  viewedAt    DateTime?
+  notifiedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  channel VideoChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, videoId])
+  @@index([channelId, publishedAt])
+  @@index([publishedAt])
+}
+
+enum VideoPlatform {
+  YOUTUBE
+  TIKTOK
+  INSTAGRAM
+  PODCAST
 }

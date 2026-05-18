@@ -280,10 +280,11 @@ async function handleForumTopic(action: string, flags: Record<string, string>): 
     }
     case "ensure-all": {
       const REQUIRED = [
-        { name: "Main-News", iconColor: 0x6fb9f0 },
-        { name: "Predictions", iconColor: 0xffd67e },
-        { name: "Feedback", iconColor: 0xcb86db },
-        { name: "System-Log", iconColor: 0x8eee98 },
+        { name: "Main-News",    iconColor: 0x6fb9f0 },
+        { name: "Predictions",  iconColor: 0xffd67e },
+        { name: "Feedback",     iconColor: 0xcb86db },
+        { name: "System-Log",   iconColor: 0x8eee98 },
+        { name: "GitHub-Feed",  iconColor: 0xff93b2 },
       ];
       const results: { name: string; status: string; telegramTopicId?: number }[] = [];
       const botToken = process.env["TELEGRAM_BOT_TOKEN"];

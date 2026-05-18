@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --border: #1f1f1f;
+  --hover: #161616;
+  --accent: #6366f1;
+  --accent-dim: #4f52c4;
+  --text-primary: #f0f0f0;
+  --text-secondary: #8a8a8a;
+  --positive: #22c55e;
+  --negative: #ef4444;
+  --neutral-color: #eab308;
+  --sidebar-w: 240px;
+  --bottom-nav-h: 64px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background-color: var(--bg);
+  color: var(--text-primary);
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Layout ──────────────────────────────────────────────── */
+.layout-sidebar {
+  position: fixed;
+  top: 0; left: 0;
+  width: var(--sidebar-w);
+  height: 100vh;
+  background-color: #0d0d0d;
+  border-right: 1px solid #1f1f1f;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+.layout-main {
+  flex: 1;
+  margin-left: var(--sidebar-w);
+  min-height: 100vh;
+  overflow-y: auto;
+}
+
+/* ── Page content padding ────────────────────────────────── */
+.page-content {
+  padding: 24px 32px;
+}
+
+/* ── Card grids ──────────────────────────────────────────── */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 16px;
+}
+
+/* ── Horizontal pill rows — scroll on mobile ─────────────── */
+.pills-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Bottom nav (mobile only) ────────────────────────────── */
+.bottom-nav {
+  display: none;
+}
+
+/* ── TopBar ──────────────────────────────────────────────── */
+.topbar {
+  padding: 24px 32px 20px;
+  border-bottom: 1px solid #1f1f1f;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background-color: #0a0a0a;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+/* ─────────────────────────────────────────────────────────
+   TABLET  769–1024 px
+───────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  :root { --sidebar-w: 60px; }
+
+  .sidebar-label   { display: none; }
+  .sidebar-logo-text { display: none; }
+  .sidebar-budget  { display: none; }
+  .sidebar-notif-label { display: none; }
+
+  .cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   MOBILE  ≤ 768 px
+───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  :root { --sidebar-w: 0px; }
+
+  .layout-sidebar  { display: none; }
+
+  .layout-main {
+    margin-left: 0;
+    padding-bottom: var(--bottom-nav-h);
+  }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: var(--bottom-nav-h);
+    background: #0d0d0d;
+    border-top: 1px solid #1f1f1f;
+    z-index: 100;
+    align-items: stretch;
+  }
+
+  .page-content { padding: 14px 16px; }
+
+  .topbar {
+    padding: 14px 16px 12px;
+    gap: 10px;
+  }
+
+  .topbar h1 { font-size: 17px !important; }
+  .topbar p  { display: none; }          /* hide subtitle on mobile */
+
+  .cards-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .pills-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .pills-row::-webkit-scrollbar { display: none; }
+
+  /* make select/input controls full-width on mobile */
+  .mobile-full { width: 100% !important; }
+}
+
+/* ── Scrollbars ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+/* ── Sentiment colours ───────────────────────────────────── */
+.sentiment-positive { color: var(--positive); }
+.sentiment-negative { color: var(--negative); }
+.sentiment-neutral  { color: var(--neutral-color); }
+
+/* ── Animations ──────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.slide-up { animation: slide-up 0.22s ease-out; }
+
+/* ── Prose ───────────────────────────────────────────────── */
+.prose-dark { color: var(--text-primary); line-height: 1.7; }
+.prose-dark p { margin-bottom: 1rem; }
+.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

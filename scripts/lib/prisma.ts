@@ -1,34 +1,28 @@
-import { PrismaClient as OpenClawPrismaClient } from "@prisma/openclaw-client";
-import { PrismaClient as ScoutPrismaClient } from "@prisma/scout-client";
+import { PrismaClient } from "@prisma/client";
 
-export type { OpenClawPrismaClient, ScoutPrismaClient };
+export type { PrismaClient };
 
-// ─── OpenClaw Client (full access) ──────────────────────────
-let openclawClient: OpenClawPrismaClient | undefined;
+// ─── Single Database Client ─────────────────────────────────
+// Using unified client for both scout and openclaw operations
+// Database roles enforced at application level, not connection level
 
-export function getOpenClawDb(): OpenClawPrismaClient {
-  if (!openclawClient) {
-    openclawClient = new OpenClawPrismaClient({
+let client: PrismaClient | undefined;
+
+export function getOpenClawDb(): PrismaClient {
+  if (!client) {
+    client = new PrismaClient({
       datasourceUrl: process.env["DATABASE_URL"],
     });
   }
-  return openclawClient;
+  return client;
 }
 
-// ─── Scout Client (restricted access) ───────────────────────
-let scoutClient: ScoutPrismaClient | undefined;
-
-export function getScoutDb(): ScoutPrismaClient {
-  if (!scoutClient) {
-    scoutClient = new ScoutPrismaClient({
-      datasourceUrl: process.env["SCOUT_DATABASE_URL"],
-    });
-  }
-  return scoutClient;
+// Scout uses same client (simplified for single-user setup)
+export function getScoutDb(): PrismaClient {
+  return getOpenClawDb();
 }
 
 // ─── Graceful Shutdown ──────────────────────────────────────
 export async function disconnectAll(): Promise<void> {
-  await openclawClient?.$disconnect();
-  await scoutClient?.$disconnect();
+  await client?.$disconnect();
 }
