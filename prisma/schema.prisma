@@ -446,8 +446,23 @@ model Notification {
 enum NotificationType {
   NEW_ARTICLE
   NEW_PREDICTION
+  NEW_GITHUB_REPO
+  NEW_VIDEO
   PREDICTION_VERIFIED
+  PIPELINE_SUMMARY
   SYSTEM
+}
+
+// ─── Push Subscription ───────────────────────────────────────
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ─── ForumTopic ─────────────────────────────────────────────
