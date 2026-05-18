@@ -41,8 +41,8 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Skip Next.js internals and static files
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons/).*)'],
+  // Skip Next.js internals, static assets, and PWA files (manifest, SW, icons)
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons/|manifest\\.json|sw\\.js|icon-|badge-).*)'],
 }
 
 // ── Token helpers (Web Crypto — Edge runtime compatible) ──────────────────
