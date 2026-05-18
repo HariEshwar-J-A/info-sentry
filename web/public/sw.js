@@ -4,6 +4,11 @@ const CACHE = 'info-sentry-v2'
 // ── Install: skip waiting immediately, don't pre-cache anything ──────────────
 self.addEventListener('install', () => { self.skipWaiting() })
 
+// ── Message: allow pages to force SW activation ───────────────────────────────
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
 // ── Activate: clear ALL old caches and take control immediately ──────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
