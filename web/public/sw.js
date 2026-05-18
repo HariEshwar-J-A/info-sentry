@@ -1,45 +1,22 @@
-/* Info-Sentry Service Worker — push notifications + offline shell caching */
-const CACHE = 'info-sentry-v1'
-const OFFLINE_URLS = ['/', '/feed', '/predictions', '/video-feed', '/github-feed']
+/* Info-Sentry Service Worker — push notifications only, no fetch interception */
+const CACHE = 'info-sentry-v2'
 
-// ── Install: pre-cache the app shell ────────────────────────
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(OFFLINE_URLS)).catch(() => {})
-  )
-  self.skipWaiting()
-})
+// ── Install: skip waiting immediately, don't pre-cache anything ──────────────
+self.addEventListener('install', () => { self.skipWaiting() })
 
-// ── Activate: clear old caches ───────────────────────────────
+// ── Activate: clear ALL old caches and take control immediately ──────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
-  )
-  self.clients.claim()
-})
-
-// ── Fetch: network-first, cache fallback for navigation ──────
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return
-  const url = new URL(event.request.url)
-  // Only cache same-origin navigation requests
-  if (url.origin !== self.location.origin) return
-  if (event.request.mode !== 'navigate') return
-
-  event.respondWith(
-    fetch(event.request)
-      .then(res => {
-        const clone = res.clone()
-        caches.open(CACHE).then(c => c.put(event.request, clone)).catch(() => {})
-        return res
-      })
-      .catch(() => caches.match(event.request).then(r => r ?? caches.match('/')))
+    caches.keys()
+      .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   )
 })
 
-// ── Push: show notification ───────────────────────────────────
+// ── NO fetch handler — let Next.js and the browser handle all requests ────────
+// Intercepting fetch causes stale-chunk 400 errors after Next.js rebuilds.
+
+// ── Push: show notification ───────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
   let payload = {}
   try { payload = event.data?.json() ?? {} } catch { payload = { title: 'Info-Sentry', body: event.data?.text() ?? '' } }
@@ -48,14 +25,12 @@ self.addEventListener('push', (event) => {
   const body    = payload.body    ?? ''
   const data    = payload.data    ?? {}
   const tag     = payload.tag     ?? ('is-' + (data.type ?? 'general'))
-  const icon    = '/icon-192.png'
-  const badge   = '/badge-72.png'
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon,
-      badge,
+      icon:   '/icon-192.png',
+      badge:  '/badge-72.png',
       tag,
       data,
       requireInteraction: payload.requireInteraction ?? false,
@@ -64,21 +39,21 @@ self.addEventListener('push', (event) => {
   )
 })
 
-// ── Notification click: open or focus the right page ─────────
+// ── Notification click: open or focus the right page ─────────────────────────
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
   const data = event.notification.data ?? {}
   let path = '/'
 
-  if (data.articleId)    path = `/article/${data.articleId}`
+  if (data.articleId)         path = `/article/${data.articleId}`
   else if (data.predictionId) path = `/predictions/${data.predictionId}`
-  else if (data.repoId)  path = `/github-feed/${data.repoId}`
-  else if (data.videoId) path = `/video-feed/${data.videoId}`
-  else if (data.type === 'new_article')    path = '/feed'
-  else if (data.type === 'new_github')     path = '/github-feed'
-  else if (data.type === 'new_video')      path = '/video-feed'
-  else if (data.type === 'pipeline')       path = '/settings'
+  else if (data.repoId)       path = `/github-feed/${data.repoId}`
+  else if (data.videoId)      path = `/video-feed/${data.videoId}`
+  else if (data.type === 'new_article')  path = '/feed'
+  else if (data.type === 'new_github')   path = '/github-feed'
+  else if (data.type === 'new_video')    path = '/video-feed'
+  else if (data.type === 'pipeline')     path = '/settings'
 
   // Mark notification as read via background fetch
   if (data.notificationId) {
@@ -98,8 +73,7 @@ self.addEventListener('notificationclick', (event) => {
   )
 })
 
-// ── Notification close (dismissed from device tray) ─────────
-self.addEventListener('notificationclose', () => {
-  // Dismissed from OS — we intentionally do NOT mark as read here
-  // so it stays in the in-app notification list until explicitly cleared
-})
+// ── Notification close (dismissed from OS tray) ──────────────────────────────
+// Intentionally no-op — dismissed from device does NOT mark as read in the app.
+// It stays in the in-app notification list until the user explicitly clears it.
+self.addEventListener('notificationclose', () => {})
