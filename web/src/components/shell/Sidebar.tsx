@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   Rss, GitBranch, MessageSquare, Tag, Activity, Database, Target,
   Sparkles, Settings, Bell, BellOff, BellRing, LogOut, Newspaper,
-  Zap, Cog, Video, X, CheckCheck, Trash2,
+  Zap, Cog, Video, X, CheckCheck, Trash2, BookOpen,
 } from 'lucide-react'
 
 // ─── Notification Sound ────────────────────────────────────
@@ -90,6 +90,7 @@ interface NavItem { href: string; label: string; icon: React.ReactNode }
 
 const NAV: NavItem[] = [
   { href: '/feed',        label: 'Feed',        icon: <Rss size={18} /> },
+  { href: '/summaries',   label: 'Summaries',   icon: <BookOpen size={18} /> },
   { href: '/github-feed', label: 'GitHub Feed',  icon: <GitBranch size={18} /> },
   { href: '/video-feed',  label: 'Video Feed',   icon: <Video size={18} /> },
   { href: '/chat',        label: 'Chat',         icon: <MessageSquare size={18} /> },
@@ -143,6 +144,20 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 60_000)}m ago`
 }
 
+const SOUND_KEY = 'is_sound_enabled'
+const MUTED_KEY = 'is_muted_types'
+
+function readSoundPref(): boolean {
+  try { return localStorage.getItem(SOUND_KEY) !== 'false' } catch { return true }
+}
+
+function readMutedTypes(): Set<string> {
+  try {
+    const raw = localStorage.getItem(MUTED_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch { return new Set() }
+}
+
 interface BudgetData { spentUsd: number; budgetUsd: number; percent: number }
 
 export function Sidebar() {
@@ -154,11 +169,24 @@ export function Sidebar() {
   const [notifOpen, setNotifOpen] = useState(false)
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushLoading, setPushLoading] = useState(false)
+  const [mutedTypes, setMutedTypes] = useState<Set<string>>(new Set())
   const bellRef = useRef<HTMLButtonElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
   const prevUnreadRef = useRef<number | null>(null)
   const pendingSoundRef = useRef(0)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Read muted types preference on mount
+  useEffect(() => {
+    setMutedTypes(readMutedTypes())
+  }, [])
+
+  // Re-read muted types when window is re-focused (user may have changed them in settings)
+  useEffect(() => {
+    const onFocus = () => setMutedTypes(readMutedTypes())
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
 
   // Check push subscription state on mount
   useEffect(() => {
@@ -174,23 +202,30 @@ export function Sidebar() {
       .then(r => r.json())
       .then((d: { notifications: NotifItem[]; unreadCount: number }) => {
         const newNotifs = d.notifications ?? []
-        const newCount = d.unreadCount ?? 0
         setNotifications(newNotifs)
-        setUnreadCount(newCount)
 
-        if (prevUnreadRef.current !== null && newCount > prevUnreadRef.current) {
-          const arrived = newCount - prevUnreadRef.current
+        // Compute effective unread count excluding muted types
+        const currentMuted = readMutedTypes()
+        const effectiveCount = newNotifs.filter(n => !n.readAt && !currentMuted.has(n.type)).length
+        setUnreadCount(effectiveCount)
+
+        if (prevUnreadRef.current !== null && effectiveCount > prevUnreadRef.current) {
+          const arrived = effectiveCount - prevUnreadRef.current
           pendingSoundRef.current += arrived
 
-          if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
-          debounceTimerRef.current = setTimeout(() => {
-            playNotificationSound(pendingSoundRef.current)
+          if (readSoundPref()) {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+            debounceTimerRef.current = setTimeout(() => {
+              playNotificationSound(pendingSoundRef.current)
+              pendingSoundRef.current = 0
+              debounceTimerRef.current = null
+            }, 10_000)
+          } else {
             pendingSoundRef.current = 0
-            debounceTimerRef.current = null
-          }, 10_000)
+          }
         }
 
-        prevUnreadRef.current = newCount
+        prevUnreadRef.current = effectiveCount
       })
       .catch(() => {})
   }, [])

@@ -17,6 +17,7 @@ import { chatCompletion } from './lib/openrouter.js'
 import { canSpend, getMonthlySpend } from './lib/budget.js'
 import { getModelsForCurrentBudget } from './lib/models.js'
 import { pipelineUserIdFromEnv } from './lib/pipeline-scope.js'
+import { notifyUser } from './lib/push.js'
 
 const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN']
 const ADMIN_ID  = process.env['TELEGRAM_ADMIN_ID']
@@ -155,17 +156,17 @@ Write a 3-4 sentence recap of the most significant developments.`
 
   const text = lines.filter(l => l !== undefined).join('\n').slice(0, 4096)
 
-  // Save as notification (shows in web bell)
+  // Save as notification + send push
   if (userId) {
-    await db.notification.create({
-      data: {
-        userId,
-        type: 'SYSTEM',
+    const body = aiNarrative || `${articlesThisWeek} articles, ${predictionsThisWeek} predictions this week.`
+    await notifyUser(
+      db, userId, 'SYSTEM',
+      {
         title: `Weekly Digest — ${weekLabel}`,
-        body: aiNarrative || `${articlesThisWeek} articles, ${predictionsThisWeek} predictions this week.`,
-        data: { type: 'weekly_digest', week: weekLabel },
+        body: body.slice(0, 200) + (body.length > 200 ? '…' : ''),
       },
-    }).catch(() => {})
+      { type: 'weekly_digest', week: weekLabel },
+    ).catch(() => {})
   }
 
   await sendTelegram(text)

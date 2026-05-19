@@ -18,8 +18,12 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-// ── NO fetch handler — let Next.js and the browser handle all requests ────────
-// Intercepting fetch causes stale-chunk 400 errors after Next.js rebuilds.
+// ── Fetch: passthrough only — required for PWA installability ────────────────
+// Chrome won't show the install button without a fetch handler.
+// We don't cache anything — every request goes straight to the network.
+self.addEventListener('fetch', (event) => {
+  event.respondWith(fetch(event.request))
+})
 
 // ── Push: show notification ───────────────────────────────────────────────────
 self.addEventListener('push', (event) => {

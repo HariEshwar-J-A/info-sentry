@@ -19,6 +19,7 @@ import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.
 import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend } from "./lib/budget.js";
 import { KIMI_K2 } from "./lib/models.js";
+import { notifyUser } from "./lib/push.js";
 
 const DRY_RUN = process.argv.includes("--dryRun");
 const LEGACY_OWNER_USER_ID = process.env["OWNER_USER_ID"] ?? "cmoi886x30000z57fqxkeg2ms";
@@ -427,23 +428,25 @@ async function main(): Promise<void> {
         }).catch(() => {});
       }
 
-      // Create notification
+      // Create notification + send web push
       const targetUserId = prediction.userId ?? notificationUserId;
       const emoji = result.verdict === "CORRECT" ? "✅" : result.verdict === "INCORRECT" ? "❌" : "🔶";
-      await db.notification.create({
-        data: {
-          userId: targetUserId,
-          type: "PREDICTION_VERIFIED",
+      await notifyUser(
+        db,
+        targetUserId,
+        "PREDICTION_VERIFIED",
+        {
           title: `${emoji} Prediction ${result.verdict.replace(/_/g, " ")}`,
           body: prediction.content.slice(0, 120) + (prediction.content.length > 120 ? "…" : ""),
-          data: {
-            predictionId: prediction.id,
-            articleId: prediction.articleId,
-            verdict: result.verdict,
-            confidence: result.confidence,
-          },
+          requireInteraction: result.verdict === "CORRECT" || result.verdict === "INCORRECT",
         },
-      });
+        {
+          predictionId: prediction.id,
+          articleId: prediction.articleId,
+          verdict: result.verdict,
+          confidence: result.confidence,
+        },
+      );
 
       // Telegram notification
       const sourceLabel = prediction.article

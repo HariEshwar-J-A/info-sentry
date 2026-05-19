@@ -6,6 +6,7 @@ import { TrendingUp, TrendingDown, Minus, ThumbsUp, ThumbsDown, ExternalLink, Bo
 import { Badge } from '@/components/ui/Badge'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { SentimentBar } from './SentimentBar'
+import { stripMarkdown } from '@/components/ui/MarkdownContent'
 import type { ArticleWithSummary } from '@/lib/feed'
 
 interface ArticleCardProps {
@@ -37,7 +38,7 @@ export function ArticleCard({ article, onFeedback, onBookmark, userTopics }: Art
   const relevance = article.summary?.relevanceScore ?? 0
   const sentiment = article.summary?.sentimentScore ?? null
   const topics = article.summary?.keyTopics ?? []
-  const excerpt = article.summary?.content?.slice(0, 200) ?? ''
+  const excerpt = stripMarkdown(article.summary?.content ?? '').slice(0, 200)
   const predictions = article.predictions ?? []
   const insightSentiment = article.insight?.userSentiment ?? null
   const relevanceColor = relevance > 0.7 ? '#22c55e' : relevance > 0.4 ? '#6366f1' : '#8a8a8a'

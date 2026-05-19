@@ -2,13 +2,13 @@
 
 import { useEffect } from 'react'
 
+const SW_RELOAD_KEY = 'sw_reload_done'
+
 export function ServiceWorkerRegistration() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
 
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(registration => {
-      // When a new SW is waiting to activate, send it SKIP_WAITING immediately
-      // so it takes over without needing all tabs to close.
       if (registration.waiting) {
         registration.waiting.postMessage({ type: 'SKIP_WAITING' })
       }
@@ -23,8 +23,11 @@ export function ServiceWorkerRegistration() {
         })
       })
 
-      // When the SW tells us it just took over, reload to get fresh HTML + chunks
+      // sessionStorage persists through soft reloads (unlike a module variable)
+      // so this truly fires only once per browser session, breaking the loop.
       navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (sessionStorage.getItem(SW_RELOAD_KEY)) return
+        sessionStorage.setItem(SW_RELOAD_KEY, '1')
         window.location.reload()
       })
     }).catch(err => console.warn('[SW] Registration failed:', err))

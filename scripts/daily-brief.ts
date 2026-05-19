@@ -18,6 +18,7 @@ import { getScoutDb, disconnectAll } from './lib/prisma.js'
 import { chatCompletion } from './lib/openrouter.js'
 import { canSpend, getMonthlySpend } from './lib/budget.js'
 import { getModelsForCurrentBudget } from './lib/models.js'
+import { notifyUser } from './lib/push.js'
 
 const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN']
 const ADMIN_ID  = process.env['TELEGRAM_ADMIN_ID']
@@ -143,16 +144,15 @@ Write a concise personalized brief covering the most significant developments.`
   const brief = response.content.trim()
   console.log(`[daily-brief] Brief: ${brief.slice(0, 120)}…`)
 
-  // Save as Notification (shows in web bell dropdown)
-  await db.notification.create({
-    data: {
-      userId,
-      type: 'SYSTEM',
+  // Save as Notification + send push
+  await notifyUser(
+    db, userId, 'SYSTEM',
+    {
       title: `Daily Brief — ${date}`,
-      body: brief,
-      data: { type: 'daily_brief', date },
+      body: brief.slice(0, 200) + (brief.length > 200 ? '…' : ''),
     },
-  })
+    { type: 'daily_brief', date },
+  )
 
   // Post to Telegram DM
   const topicLine = `<i>Tracking: ${escHtml(topTopics)}</i>`
