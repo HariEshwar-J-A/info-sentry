@@ -71,7 +71,7 @@ export async function GET() {
     // By topic
     const topicMap = new Map<string, { total: number; correct: number; partial: number }>()
     for (const pred of resolved) {
-      const topics = pred.article.summary?.keyTopics ?? []
+      const topics = pred.article?.summary?.keyTopics ?? (pred.category ? [pred.category] : [])
       for (const topic of topics) {
         if (!topicMap.has(topic)) topicMap.set(topic, { total: 0, correct: 0, partial: 0 })
         const t = topicMap.get(topic)!

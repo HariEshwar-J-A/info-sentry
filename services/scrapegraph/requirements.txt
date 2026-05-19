@@ -4,3 +4,8 @@ uvicorn[standard]>=0.32.0,<1
 pydantic>=2.0.0,<3
 # Pin ScrapeGraphAI: unpinned/git installs can reject OpenRouter unless model_instance is honored.
 scrapegraphai==1.20.1
+# langchain 1.x moved CommaSeparatedListOutputParser out of langchain.output_parsers.
+# scrapegraphai 1.20.1 still imports from the old location → pin langchain to the last 0.x release.
+langchain>=0.2.0,<0.3
+langchain-community>=0.2.0,<0.3
+langchain-core>=0.2.0,<0.3

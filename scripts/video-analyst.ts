@@ -17,6 +17,7 @@ import { chatCompletion } from './lib/openrouter.js'
 import { logCost, canSpend, getMonthlySpend } from './lib/budget.js'
 import { getModelsForCurrentBudget } from './lib/models.js'
 import { pipelineUserIdFromEnv } from './lib/pipeline-scope.js'
+import { notifyUser } from './lib/push.js'
 
 const TRANSCRIPT_SYSTEM = `You are summarizing a YouTube video for someone who didn't watch it.
 Write 4-6 sentences covering: the main topic, key insights, any surprising findings, and practical takeaways.
@@ -129,6 +130,21 @@ async function main() {
       await logCost('video-analyst', model, response.promptTokens, response.completionTokens, response.generationId)
       processed++
       console.log(`[video-analyst] ✓ ${hasTranscript ? '' : '[metadata] '}${video.title.slice(0, 60)}`)
+
+      if (pipelineUserId) {
+        await notifyUser(
+          db as Parameters<typeof notifyUser>[0],
+          pipelineUserId,
+          'NEW_VIDEO',
+          {
+            title: `New video: ${video.title.slice(0, 60)}`,
+            body: `${video.channel.channelName} · ${hasTranscript ? 'Full summary' : 'Metadata summary'}`,
+            tag: `video-${video.id}`,
+            data: { type: 'new_video', videoId: video.id },
+          },
+          { videoId: video.id },
+        ).catch(() => {})
+      }
     } catch (err) {
       console.error(`[video-analyst] ✗ ${video.title}: ${(err as Error).message}`)
     }

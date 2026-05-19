@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/user'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { action } = await req.json().catch(() => ({ action: 'viewed' })) as { action?: string }
     if (action === 'viewed') {
       await prisma.gitHubRepo.update({ where: { id }, data: { viewedAt: new Date() } })
+
+      // Auto-read any NEW_GITHUB_REPO notification for this repo
+      const auth = await requireUserId()
+      if (!(auth instanceof Response)) {
+        await prisma.notification.updateMany({
+          where: { userId: auth.userId, readAt: null, data: { path: ['repoId'], equals: id } },
+          data: { readAt: new Date() },
+        }).catch(() => {})
+      }
     }
     return Response.json({ success: true })
   } catch (err) {

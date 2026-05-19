@@ -1,0 +1,2 @@
+ALTER TABLE "VideoChannel" ADD COLUMN "transcriptSource" TEXT NOT NULL DEFAULT 'youtube';
+ALTER TABLE "VideoChannel" ADD COLUMN "maxAgeDays" INTEGER NOT NULL DEFAULT 7;

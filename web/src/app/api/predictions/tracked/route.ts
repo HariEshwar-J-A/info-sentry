@@ -15,7 +15,12 @@ export async function GET() {
           { trackedByUser: true },
         ],
       },
-      include: {
+      select: {
+        id: true, title: true, category: true, isUserDefined: true,
+        content: true, confidence: true, timeHorizon: true, status: true,
+        trackedByUser: true, trackedAt: true, dueDate: true,
+        resolutionAnalysis: true, viewedAt: true, createdAt: true, resolvedAt: true,
+        userNotes: true, outcome: true, aiConfidence: true, aiAnalysis: true,
         article: { select: { id: true, title: true, url: true } },
       },
       orderBy: [

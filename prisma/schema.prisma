@@ -159,7 +159,12 @@ model Summary {
 // ─── Prediction ─────────────────────────────────────────────
 model Prediction {
   id                 String           @id @default(cuid())
-  articleId          String
+  articleId          String?          // nullable — user-defined predictions have no source article
+  userId             String?          // owner (required for user-defined predictions)
+  title              String?          // short headline
+  category           String?          // AI/Tech | Finance | Markets | Geopolitics | etc.
+  userContext        String?          // user's reasoning when creating
+  isUserDefined      Boolean          @default(false)
   content            String
   confidence         Float
   timeHorizon        String?
@@ -171,16 +176,54 @@ model Prediction {
   userNotes          String?
   dueDate            DateTime?
   resolutionAnalysis String?
+  aiConfidence       Float?           // AI's latest assessed confidence
+  aiAnalysis         String?          // AI's latest reasoning text
+  lastAnalyzedAt     DateTime?        // when verifier last processed this
   viewedAt           DateTime?
   createdAt          DateTime         @default(now())
   resolvedAt         DateTime?
   outcome            String?
 
-  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  article        Article?               @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  evidence       PredictionEvidence[]
+  confidenceLogs PredictionConfidenceLog[]
 
   @@index([status])
   @@index([createdAt])
   @@index([trackedByUser])
+  @@index([userId, status])
+  @@index([isUserDefined])
+}
+
+// ─── Prediction Evidence ─────────────────────────────────────
+model PredictionEvidence {
+  id           String   @id @default(cuid())
+  predictionId String
+  articleId    String?  // null for web-search-sourced evidence
+  url          String?
+  title        String?
+  impact       Float    // -1.0 (contradicts) to 1.0 (strongly supports)
+  summary      String
+  createdAt    DateTime @default(now())
+
+  prediction Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@unique([predictionId, articleId])
+  @@index([predictionId, createdAt])
+}
+
+// ─── Prediction Confidence Log ───────────────────────────────
+model PredictionConfidenceLog {
+  id           String   @id @default(cuid())
+  predictionId String
+  confidence   Float    // 0.0–1.0
+  source       String   // "user_created" | "ai_evidence" | "manual_resolve"
+  note         String?
+  createdAt    DateTime @default(now())
+
+  prediction Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  @@index([predictionId, createdAt])
 }
 
 enum PredictionStatus {
@@ -403,8 +446,23 @@ model Notification {
 enum NotificationType {
   NEW_ARTICLE
   NEW_PREDICTION
+  NEW_GITHUB_REPO
+  NEW_VIDEO
   PREDICTION_VERIFIED
+  PIPELINE_SUMMARY
   SYSTEM
+}
+
+// ─── Push Subscription ───────────────────────────────────────
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ─── ForumTopic ─────────────────────────────────────────────
@@ -488,17 +546,19 @@ enum RunStatus {
 
 // ─── VideoChannel (YouTube / social media) ───────────────────
 model VideoChannel {
-  id          String        @id @default(cuid())
-  userId      String
-  platform    VideoPlatform @default(YOUTUBE)
-  channelId   String
-  channelName String
-  channelUrl  String        @unique
-  rssFeedUrl  String?
-  isActive    Boolean       @default(true)
-  lastScanned DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id               String        @id @default(cuid())
+  userId           String
+  platform         VideoPlatform @default(YOUTUBE)
+  channelId        String
+  channelName      String
+  channelUrl       String        @unique
+  rssFeedUrl       String?
+  isActive         Boolean       @default(true)
+  transcriptSource String        @default("youtube") // "youtube" | "whisper" | "none"
+  maxAgeDays       Int           @default(7)
+  lastScanned      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   videos VideoItem[]
 

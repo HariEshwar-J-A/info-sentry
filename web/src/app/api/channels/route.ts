@@ -88,6 +88,42 @@ export async function POST(request: Request) {
   }
 }
 
+interface UpdateChannelBody {
+  id: string
+  transcriptSource?: string
+  maxAgeDays?: number
+  isActive?: boolean
+}
+
+export async function PATCH(request: Request) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
+  try {
+    const body = (await request.json()) as UpdateChannelBody
+    const { id, transcriptSource, maxAgeDays, isActive } = body
+
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+
+    const channel = await prisma.videoChannel.findFirst({ where: { id, userId } })
+    if (!channel) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const updated = await prisma.videoChannel.update({
+      where: { id },
+      data: {
+        ...(transcriptSource !== undefined ? { transcriptSource } : {}),
+        ...(maxAgeDays !== undefined ? { maxAgeDays } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
+      },
+    })
+
+    return NextResponse.json(updated)
+  } catch {
+    return NextResponse.json({ error: 'Failed to update channel' }, { status: 500 })
+  }
+}
+
 export async function DELETE(request: Request) {
   const auth = await requireUserId()
   if (auth instanceof Response) return auth

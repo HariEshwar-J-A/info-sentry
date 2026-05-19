@@ -1,7 +1,5 @@
 import type { NextConfig } from 'next'
 
-// Set BASE_PATH env var to enable path-based hosting, e.g. BASE_PATH=/sentry
-// Leave unset for subdomain or local development (served at /)
 const basePath = process.env.BASE_PATH ?? ''
 
 const securityHeaders = [
@@ -13,12 +11,23 @@ const securityHeaders = [
   { key: 'X-XSS-Protection', value: '1; mode=block' },
 ]
 
+// HTML pages must never be cached — stale HTML references old JS chunk hashes
+// which no longer exist after a rebuild, causing 400 / MIME-type errors.
+const noCacheHeaders = [
+  { key: 'Cache-Control', value: 'no-store, must-revalidate' },
+  { key: 'Pragma', value: 'no-cache' },
+]
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ['@prisma/client', 'prisma'],
-  // basePath makes the app serve from /sentry instead of / when set
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
   async headers() {
-    return [{ source: '/(.*)', headers: securityHeaders }]
+    return [
+      // Security headers on everything
+      { source: '/(.*)', headers: securityHeaders },
+      // Never cache HTML navigation responses (prevents stale-chunk 400s after rebuild)
+      { source: '/((?!_next/static|_next/image|favicon.ico|icon-|badge-|manifest|sw.js).*)', headers: noCacheHeaders },
+    ]
   },
 }
 

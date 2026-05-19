@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
 import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
+import { notifyUser } from "./lib/push.js";
 import {
   assertOpenRouterKeyHasHeadroom,
   isOpenRouterKeyLimitExceeded,
@@ -246,6 +247,23 @@ async function main(): Promise<void> {
       await db.article.update({ where: { id: article.id }, data: { status: "SUMMARIZED", analyzedAt: new Date() } });
       processed++;
       console.log(`[analyst] Done: ${article.title}`);
+
+      // Notify user of new article summary
+      if (pipelineUserId && completed) {
+        const topics = completed.summary.keyTopics.slice(0, 3).join(", ");
+        await notifyUser(
+          db as Parameters<typeof notifyUser>[0],
+          pipelineUserId,
+          "NEW_ARTICLE",
+          {
+            title: `New article: ${article.title.slice(0, 60)}`,
+            body: topics ? `Topics: ${topics}` : "New summary available",
+            tag: `article-${article.id}`,
+            data: { type: "new_article", articleId: article.id },
+          },
+          { articleId: article.id },
+        ).catch(() => {});
+      }
     } catch (err) {
       const rateLimited =
         isOpenRouterRateLimitExitCode(err) ||

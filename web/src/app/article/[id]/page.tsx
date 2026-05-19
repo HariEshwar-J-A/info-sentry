@@ -10,6 +10,7 @@ import { ArticleChatPanel } from '@/components/article/ArticleChatPanel'
 import { ReadingProgress } from '@/components/article/ReadingProgress'
 import { ArticleActions } from '@/components/article/ArticleActions'
 import { getArticleDetail } from '@/lib/feed'
+import { MarkdownContent } from '@/components/ui/MarkdownContent'
 
 type ArticleDetail = NonNullable<Awaited<ReturnType<typeof getArticleDetail>>>
 type PredictionRow = ArticleDetail['predictions'][number]
@@ -162,9 +163,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
               <h2 style={{ fontSize: '14px', fontWeight: 600, color: '#8a8a8a', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 AI Summary
               </h2>
-              <div style={{ fontSize: '15px', color: '#d0d0d0', lineHeight: '1.75', whiteSpace: 'pre-wrap' }}>
-                {summary.content}
-              </div>
+              <MarkdownContent content={summary.content} size="md" />
             </div>
           ) : (
             <div style={{ backgroundColor: '#111111', border: '1px solid #1f1f1f', borderRadius: '12px', padding: '24px', marginBottom: '32px', textAlign: 'center', color: '#555' }}>

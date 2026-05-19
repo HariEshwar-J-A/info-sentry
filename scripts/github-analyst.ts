@@ -14,6 +14,7 @@ import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
 import { getModelsForCurrentBudget, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
 import { pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
+import { notifyUser } from "./lib/push.js";
 
 const BOT_TOKEN  = process.env["TELEGRAM_BOT_TOKEN"];
 const SUPERGROUP = process.env["TELEGRAM_SUPERGROUP_ID"];
@@ -277,6 +278,22 @@ async function main() {
         await postRepoToTelegram(githubFeedThreadId, repo)
         await db.gitHubRepo.update({ where: { id: repo.id }, data: { notifiedAt: new Date() } })
         console.log(`[github-analyst] 📨 Notified: ${repo.fullName}`)
+
+        // Push notification to user
+        if (pipelineUserId) {
+          await notifyUser(
+            db as Parameters<typeof notifyUser>[0],
+            pipelineUserId,
+            'NEW_GITHUB_REPO',
+            {
+              title: `New repo: ${repo.fullName}`,
+              body: repo.description?.slice(0, 100) ?? `${repo.stars.toLocaleString()} stars · ${repo.language ?? 'unknown'}`,
+              tag: `repo-${repo.id}`,
+              data: { type: 'new_github', repoId: repo.id },
+            },
+            { repoId: repo.id },
+          ).catch(() => {})
+        }
       } catch (err) {
         console.error(`[github-analyst] ✗ notify ${repo.fullName}: ${(err as Error).message}`)
       }

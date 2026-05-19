@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Rss, GitBranch, MessageSquare, Tag, Activity, Database, Target,
-  Sparkles, Settings, Bell, LogOut, Newspaper, Zap, Cog, Video,
+  Sparkles, Settings, Bell, BellOff, BellRing, LogOut, Newspaper,
+  Zap, Cog, Video, X, CheckCheck, Trash2, BookOpen,
 } from 'lucide-react'
 
 // ─── Notification Sound ────────────────────────────────────
@@ -32,10 +33,64 @@ function playNotificationSound(count: number) {
   } catch { /* audio not available */ }
 }
 
+// ─── Push subscription helpers ─────────────────────────────
+
+async function subscribeToPush(): Promise<boolean> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false
+  const publicKey = process.env['NEXT_PUBLIC_VAPID_PUBLIC_KEY']
+  if (!publicKey) return false
+
+  const perm = await Notification.requestPermission()
+  if (perm !== 'granted') return false
+
+  const reg = await navigator.serviceWorker.ready
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicKey) as unknown as ArrayBuffer,
+  })
+
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sub.toJSON()),
+  })
+  return true
+}
+
+async function unsubscribeFromPush(): Promise<void> {
+  if (!('serviceWorker' in navigator)) return
+  const reg = await navigator.serviceWorker.ready
+  const sub = await reg.pushManager.getSubscription()
+  if (!sub) return
+  const endpoint = sub.endpoint
+  await sub.unsubscribe()
+  await fetch('/api/push/subscribe', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint }),
+  })
+}
+
+async function getPushSubscription(): Promise<PushSubscription | null> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null
+  const reg = await navigator.serviceWorker.ready
+  return reg.pushManager.getSubscription()
+}
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  return new Uint8Array([...raw].map(c => c.charCodeAt(0)))
+}
+
+// ─── Nav + icon maps ───────────────────────────────────────
+
 interface NavItem { href: string; label: string; icon: React.ReactNode }
 
 const NAV: NavItem[] = [
   { href: '/feed',        label: 'Feed',        icon: <Rss size={18} /> },
+  { href: '/summaries',   label: 'Summaries',   icon: <BookOpen size={18} /> },
   { href: '/github-feed', label: 'GitHub Feed',  icon: <GitBranch size={18} /> },
   { href: '/video-feed',  label: 'Video Feed',   icon: <Video size={18} /> },
   { href: '/chat',        label: 'Chat',         icon: <MessageSquare size={18} /> },
@@ -48,10 +103,27 @@ const NAV: NavItem[] = [
 ]
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
-  PREDICTION_VERIFIED: <Sparkles size={16} color="#a5b4fc" />,
-  NEW_ARTICLE:         <Newspaper size={16} color="#8a8a8a" />,
-  NEW_PREDICTION:      <Target size={16} color="#8a8a8a" />,
-  SYSTEM:              <Cog size={16} color="#8a8a8a" />,
+  PREDICTION_VERIFIED: <Sparkles size={15} color="#a5b4fc" />,
+  NEW_ARTICLE:         <Newspaper size={15} color="#8a8a8a" />,
+  NEW_PREDICTION:      <Target    size={15} color="#8a8a8a" />,
+  NEW_GITHUB_REPO:     <GitBranch size={15} color="#8a8a8a" />,
+  NEW_VIDEO:           <Video     size={15} color="#8a8a8a" />,
+  PIPELINE_SUMMARY:    <Activity  size={15} color="#8a8a8a" />,
+  SYSTEM:              <Cog       size={15} color="#8a8a8a" />,
+}
+
+function notifRoute(n: { type: string; data: Record<string, unknown> }): string {
+  const d = n.data
+  if (d.articleId)    return `/article/${d.articleId}`
+  if (d.predictionId) return `/predictions/${d.predictionId}`
+  if (d.repoId)       return `/github-feed/${d.repoId}`
+  if (d.videoId)      return `/video-feed/${d.videoId}`
+  if (n.type === 'NEW_ARTICLE')     return '/feed'
+  if (n.type === 'NEW_GITHUB_REPO') return '/github-feed'
+  if (n.type === 'NEW_VIDEO')       return '/video-feed'
+  if (n.type === 'PREDICTION_VERIFIED' || n.type === 'NEW_PREDICTION') return '/predictions'
+  if (n.type === 'PIPELINE_SUMMARY') return '/settings'
+  return '/'
 }
 
 interface NotifItem {
@@ -72,6 +144,20 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 60_000)}m ago`
 }
 
+const SOUND_KEY = 'is_sound_enabled'
+const MUTED_KEY = 'is_muted_types'
+
+function readSoundPref(): boolean {
+  try { return localStorage.getItem(SOUND_KEY) !== 'false' } catch { return true }
+}
+
+function readMutedTypes(): Set<string> {
+  try {
+    const raw = localStorage.getItem(MUTED_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch { return new Set() }
+}
+
 interface BudgetData { spentUsd: number; budgetUsd: number; percent: number }
 
 export function Sidebar() {
@@ -81,16 +167,30 @@ export function Sidebar() {
   const [notifications, setNotifications] = useState<NotifItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
+  const [mutedTypes, setMutedTypes] = useState<Set<string>>(new Set())
   const bellRef = useRef<HTMLButtonElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
   const prevUnreadRef = useRef<number | null>(null)
   const pendingSoundRef = useRef(0)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Read muted types preference on mount
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      void Notification.requestPermission()
-    }
+    setMutedTypes(readMutedTypes())
+  }, [])
+
+  // Re-read muted types when window is re-focused (user may have changed them in settings)
+  useEffect(() => {
+    const onFocus = () => setMutedTypes(readMutedTypes())
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
+  // Check push subscription state on mount
+  useEffect(() => {
+    getPushSubscription().then(sub => setPushEnabled(!!sub)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -102,32 +202,30 @@ export function Sidebar() {
       .then(r => r.json())
       .then((d: { notifications: NotifItem[]; unreadCount: number }) => {
         const newNotifs = d.notifications ?? []
-        const newCount = d.unreadCount ?? 0
         setNotifications(newNotifs)
-        setUnreadCount(newCount)
 
-        if (prevUnreadRef.current !== null && newCount > prevUnreadRef.current) {
-          const arrived = newCount - prevUnreadRef.current
+        // Compute effective unread count excluding muted types
+        const currentMuted = readMutedTypes()
+        const effectiveCount = newNotifs.filter(n => !n.readAt && !currentMuted.has(n.type)).length
+        setUnreadCount(effectiveCount)
+
+        if (prevUnreadRef.current !== null && effectiveCount > prevUnreadRef.current) {
+          const arrived = effectiveCount - prevUnreadRef.current
           pendingSoundRef.current += arrived
 
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            const fresh = newNotifs.filter(n => !n.readAt).slice(0, arrived)
-            if (arrived === 1 && fresh[0]) {
-              new Notification(fresh[0].title, { body: fresh[0].body, icon: '/favicon.ico', silent: true })
-            } else if (arrived > 1) {
-              new Notification(`${arrived} new notifications`, { body: fresh.map(n => n.title).join('\n'), icon: '/favicon.ico', silent: true })
-            }
-          }
-
-          if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
-          debounceTimerRef.current = setTimeout(() => {
-            playNotificationSound(pendingSoundRef.current)
+          if (readSoundPref()) {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+            debounceTimerRef.current = setTimeout(() => {
+              playNotificationSound(pendingSoundRef.current)
+              pendingSoundRef.current = 0
+              debounceTimerRef.current = null
+            }, 10_000)
+          } else {
             pendingSoundRef.current = 0
-            debounceTimerRef.current = null
-          }, 10_000)
+          }
         }
 
-        prevUnreadRef.current = newCount
+        prevUnreadRef.current = effectiveCount
       })
       .catch(() => {})
   }, [])
@@ -150,23 +248,74 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [notifOpen])
 
+  // ── Notification actions ─────────────────────────────────
+
+  function markRead(ids: string[]) {
+    fetch('/api/notifications/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }).catch(() => {})
+    const now = new Date().toISOString()
+    setNotifications(p => p.map(n => ids.includes(n.id) ? { ...n, readAt: now } : n))
+    setUnreadCount(c => Math.max(0, c - ids.filter(id => notifications.find(n => n.id === id && !n.readAt)).length))
+  }
+
   function markAllRead() {
-    fetch('/api/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
-      .then(() => { setUnreadCount(0); setNotifications(p => p.map(n => ({ ...n, readAt: new Date().toISOString() }))) })
-      .catch(() => {})
+    fetch('/api/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {})
+    setUnreadCount(0)
+    setNotifications(p => p.map(n => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })))
+  }
+
+  function dismissOne(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    fetch('/api/notifications/dismiss', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id] }),
+    }).catch(() => {})
+    const wasUnread = notifications.find(n => n.id === id && !n.readAt)
+    setNotifications(p => p.filter(n => n.id !== id))
+    if (wasUnread) setUnreadCount(c => Math.max(0, c - 1))
+  }
+
+  function dismissAllRead() {
+    const readIds = notifications.filter(n => n.readAt).map(n => n.id)
+    if (readIds.length === 0) return
+    fetch('/api/notifications/dismiss', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: readIds }),
+    }).catch(() => {})
+    setNotifications(p => p.filter(n => !n.readAt))
   }
 
   function handleNotifClick(n: NotifItem) {
-    if (!n.readAt) {
-      fetch('/api/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [n.id] }) }).catch(() => {})
-      setNotifications(p => p.map(x => x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x))
-      setUnreadCount(c => Math.max(0, c - 1))
-    }
+    if (!n.readAt) markRead([n.id])
     setNotifOpen(false)
-    const data = n.data as { predictionId?: string; articleId?: string }
-    if (data.predictionId) router.push('/predictions')
-    else if (data.articleId) router.push(`/article/${data.articleId}`)
+    router.push(notifRoute(n))
   }
+
+  // ── Push toggle ──────────────────────────────────────────
+
+  async function togglePush() {
+    setPushLoading(true)
+    try {
+      if (pushEnabled) {
+        await unsubscribeFromPush()
+        setPushEnabled(false)
+      } else {
+        const ok = await subscribeToPush()
+        setPushEnabled(ok)
+      }
+    } catch (err) {
+      console.warn('[push] Toggle error:', err)
+    } finally {
+      setPushLoading(false)
+    }
+  }
+
+  const pushSupported = typeof window !== 'undefined' && 'PushManager' in window
 
   return (
     <aside className="layout-sidebar">
@@ -218,42 +367,85 @@ export function Sidebar() {
           )}
         </button>
 
-        {/* Dropdown */}
+        {/* Notification dropdown */}
         {notifOpen && (
-          <div ref={dropRef} style={{ position: 'fixed', left: 'calc(var(--sidebar-w) + 4px)', bottom: '100px', width: '340px', backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', zIndex: 200, overflow: 'hidden', maxHeight: '500px', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: '#f0f0f0' }}>Notifications</span>
-              {unreadCount > 0 && (
-                <button onClick={markAllRead} style={{ fontSize: '11px', color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>Mark all read</button>
-              )}
+          <div ref={dropRef} style={{ position: 'fixed', left: 'calc(var(--sidebar-w) + 4px)', bottom: '100px', width: '360px', backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '12px', boxShadow: '0 8px 40px rgba(0,0,0,0.7)', zIndex: 200, overflow: 'hidden', maxHeight: '520px', display: 'flex', flexDirection: 'column' }}>
+
+            {/* Header */}
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#f0f0f0', flex: 1 }}>
+                Notifications {unreadCount > 0 && <span style={{ color: '#6366f1' }}>({unreadCount} new)</span>}
+              </span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} title="Mark all read" style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: '5px' }}>
+                    <CheckCheck size={12} /> All read
+                  </button>
+                )}
+                {notifications.some(n => n.readAt) && (
+                  <button onClick={dismissAllRead} title="Clear read notifications" style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', color: '#555', background: 'none', border: 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: '5px' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#ef4444'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#555'}
+                  >
+                    <Trash2 size={11} /> Clear read
+                  </button>
+                )}
+              </div>
             </div>
 
+            {/* Notification list */}
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {notifications.length === 0 ? (
                 <div style={{ padding: '32px 16px', textAlign: 'center', color: '#555', fontSize: '13px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
-                    <Bell size={24} color="#333" />
-                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}><Bell size={24} color="#333" /></div>
                   No notifications yet
                 </div>
               ) : notifications.map((n) => (
-                <div key={n.id} onClick={() => handleNotifClick(n)}
-                  style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #1a1a1a', backgroundColor: !n.readAt ? 'rgba(99,102,241,0.06)' : 'transparent', transition: 'background 0.15s' }}
+                <div key={n.id}
+                  style={{ padding: '10px 14px', borderBottom: '1px solid #1a1a1a', backgroundColor: !n.readAt ? 'rgba(99,102,241,0.06)' : 'transparent', transition: 'background 0.15s', cursor: 'pointer', display: 'flex', gap: '10px', alignItems: 'flex-start' }}
+                  onClick={() => handleNotifClick(n)}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = !n.readAt ? 'rgba(99,102,241,0.1)' : '#1a1a1a'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = !n.readAt ? 'rgba(99,102,241,0.06)' : 'transparent'}
                 >
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                    <span style={{ flexShrink: 0, marginTop: '1px', display: 'flex' }}>{TYPE_ICONS[n.type] ?? <Bell size={16} color="#8a8a8a" />}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '12px', fontWeight: 600, color: n.readAt ? '#666' : '#e0e0e0', marginBottom: '3px' }}>{n.title}</div>
-                      <div style={{ fontSize: '11px', color: '#555', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{n.body}</div>
-                      <div style={{ fontSize: '10px', color: '#444', marginTop: '4px' }}>{timeAgo(n.createdAt)}</div>
-                    </div>
-                    {!n.readAt && <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#6366f1', flexShrink: 0, marginTop: '5px' }} />}
+                  <span style={{ flexShrink: 0, marginTop: '2px' }}>{TYPE_ICONS[n.type] ?? <Bell size={15} color="#8a8a8a" />}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: n.readAt ? '#666' : '#e0e0e0', marginBottom: '2px' }}>{n.title}</div>
+                    <div style={{ fontSize: '11px', color: '#555', lineHeight: '1.4', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{n.body}</div>
+                    <div style={{ fontSize: '10px', color: '#444', marginTop: '3px' }}>{timeAgo(n.createdAt)}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
+                    {!n.readAt && <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#6366f1' }} />}
+                    <button
+                      onClick={e => dismissOne(n.id, e)}
+                      title="Dismiss"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#333', padding: '2px', display: 'flex', alignItems: 'center', borderRadius: '3px' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#ef4444'}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = '#333'}
+                    >
+                      <X size={12} />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* Footer: push toggle */}
+            {pushSupported && (
+              <div style={{ padding: '10px 14px', borderTop: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '11px', color: '#555', flex: 1 }}>
+                  {pushEnabled ? 'Device notifications on' : 'Device notifications off'}
+                </span>
+                <button
+                  onClick={() => void togglePush()}
+                  disabled={pushLoading}
+                  title={pushEnabled ? 'Disable push notifications' : 'Enable push notifications'}
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 10px', borderRadius: '6px', border: `1px solid ${pushEnabled ? 'rgba(99,102,241,0.3)' : '#2a2a2a'}`, background: pushEnabled ? 'rgba(99,102,241,0.1)' : 'none', color: pushEnabled ? '#a5b4fc' : '#555', cursor: pushLoading ? 'wait' : 'pointer' }}
+                >
+                  {pushLoading ? <Cog size={12} /> : pushEnabled ? <BellRing size={12} /> : <BellOff size={12} />}
+                  {pushEnabled ? 'On' : 'Off'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -16,7 +16,11 @@ export async function GET() {
           { resolutionAnalysis: { not: null } },
         ],
       },
-      include: {
+      select: {
+        id: true, title: true, category: true, isUserDefined: true,
+        content: true, confidence: true, timeHorizon: true, status: true,
+        resolutionAnalysis: true, resolvedAt: true, viewedAt: true, createdAt: true,
+        aiConfidence: true, aiAnalysis: true,
         article: { select: { id: true, title: true, url: true } },
       },
       orderBy: { resolvedAt: 'desc' },
