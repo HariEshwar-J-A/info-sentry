@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { getOpenClawDb, disconnectAll } from "./lib/prisma.js";
 import { parseInterestIdArg } from "./lib/args.js";
 import { articleWhereScoped, pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
+import { postToTopic, postRunLog, escHtml } from "./lib/telegram.js";
 
 const exec = promisify(execFile);
 const TSX = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -47,84 +48,52 @@ async function runScript(
   return lines[lines.length - 1] ?? "";
 }
 
-// ─── Telegram ─────────────────────────────────────────────────────────────
-
-const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
-const SUPERGROUP_ID = process.env["TELEGRAM_SUPERGROUP_ID"];
-const ADMIN_ID = process.env["TELEGRAM_ADMIN_ID"];
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function telegramApi(method: string, body: Record<string, unknown>, retries = 3): Promise<unknown> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as { ok: boolean; result?: unknown; description?: string; parameters?: { retry_after?: number } };
-    if (data.ok) return data.result;
-    const retryAfter = data.parameters?.retry_after;
-    if (retryAfter && attempt < retries - 1) {
-      console.warn(`[predictor] Telegram rate limit — waiting ${retryAfter}s`);
-      await sleep(retryAfter * 1000 + 500);
-      continue;
-    }
-    throw new Error(`Telegram ${method} failed: ${data.description ?? "unknown"}`);
-  }
+// Minimum confidence to include a prediction in the digest
+const DIGEST_MIN_CONFIDENCE = 0.60;
+
+interface AccumulatedPrediction {
+  predictionId: string
+  confidence:   number
+  timeHorizon:  string
+  content:      string
 }
 
-async function postPredictionsToTelegram(
-  threadId: number | undefined,
-  predictions: { predictionId: string; confidence: number; timeHorizon: string }[],
-  connectionsToPast: string,
+async function postPredictionDigest(
+  predictions: AccumulatedPrediction[],
+  connectionsToPast?: string,
 ): Promise<void> {
-  if (predictions.length === 0) return;
+  const eligible = predictions.filter(p => p.confidence >= DIGEST_MIN_CONFIDENCE);
+  if (eligible.length === 0) return;
 
-  const db = getOpenClawDb();
-  const lines = ["<b>🔮 Predictions</b>", ""];
+  const lines = [`<b>🔮 ${eligible.length} New Prediction${eligible.length > 1 ? "s" : ""}</b>`, ""];
 
-  for (const pred of predictions) {
-    const full = await db.prediction.findUnique({
-      where: { id: pred.predictionId },
-      select: { content: true },
-    });
-    const confidence = (pred.confidence * 100).toFixed(0);
-    const emoji = pred.confidence > 0.7 ? "🎯" : pred.confidence > 0.5 ? "📊" : "💭";
+  for (const pred of eligible) {
+    const pct = (pred.confidence * 100).toFixed(0);
+    const emoji = pred.confidence > 0.75 ? "🎯" : "📊";
     lines.push(
-      `${emoji} <b>${confidence}% confidence — ${pred.timeHorizon}</b>`,
-      `   ${full?.content ?? ""}`,
+      `${emoji} <b>${pct}%</b> — ${escHtml(pred.timeHorizon)}`,
+      `   ${escHtml(pred.content.slice(0, 200))}`,
       "",
     );
   }
 
   if (connectionsToPast && connectionsToPast !== "No significant connections found.") {
-    lines.push(`<b>🔗 Historical links:</b> ${connectionsToPast}`);
+    lines.push(`<b>🔗 Historical links:</b> ${escHtml(connectionsToPast.slice(0, 200))}`);
   }
 
-  const text = lines.join("\n");
-  const truncated = text.length > 4000 ? text.slice(0, 3997) + "..." : text;
-  const firstId = predictions[0]?.predictionId ?? "";
-  const chatId = threadId ? SUPERGROUP_ID : ADMIN_ID;
-  const body: Record<string, unknown> = {
-    chat_id: chatId,
-    text: truncated,
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "📌 Track this", callback_data: `track_prediction_${firstId}` },
-        { text: "🗑️ Not useful", callback_data: `dismiss_prediction_${firstId}` },
-      ]],
-    },
-  };
-  if (threadId) body["message_thread_id"] = threadId;
-
-  await telegramApi("sendMessage", body);
+  const firstId = eligible[0]?.predictionId ?? "";
+  await postToTopic("Predictions", lines.join("\n"), firstId ? [[
+    { text: "📌 Track this", callback_data: `track_prediction_${firstId}` },
+    { text: "🗑️ Not useful", callback_data: `dismiss_prediction_${firstId}` },
+  ]] : undefined);
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  const startedAt = new Date();
   const db = getOpenClawDb();
   const interestId = parseInterestIdArg();
   const pipelineUserId = pipelineUserIdFromEnv();
@@ -133,13 +102,6 @@ async function main(): Promise<void> {
   console.log("[predictor] Starting predictor run");
   if (pipelineUserId) {
     console.log(`[predictor] Web scope: SUMMARIZED articles only for user ${pipelineUserId}`);
-  }
-
-  let predictionsThreadId: number | undefined;
-  if (SUPERGROUP_ID) {
-    const topic = await db.forumTopic.findUnique({ where: { name: "Predictions" } });
-    predictionsThreadId = topic?.telegramTopicId;
-    console.log(`[predictor] Predictions topic: ${predictionsThreadId ?? "DM fallback"}`);
   }
 
   const articles = await db.article.findMany({
@@ -154,7 +116,12 @@ async function main(): Promise<void> {
 
   console.log(`[predictor] ${articles.length} SUMMARIZED articles to predict`);
 
+  // Accumulate all new predictions across articles; post ONE digest at the end
+  const accumulated: AccumulatedPrediction[] = [];
+  let lastConnections = "";
   let processed = 0;
+  let skipped = 0;
+
   for (const article of articles) {
     try {
       const summary = await db.summary.findFirst({
@@ -165,22 +132,21 @@ async function main(): Promise<void> {
 
       if (!summary) {
         console.warn(`[predictor] No summary for: ${article.title} — skipping`);
+        skipped++;
         continue;
       }
 
-      // Check for existing predictions (re-post if already generated)
+      // Check for existing predictions (accumulate without re-posting individually)
       const existingPreds = await db.prediction.findMany({
         where: { articleId: article.id },
-        select: { id: true, confidence: true, timeHorizon: true },
+        select: { id: true, confidence: true, timeHorizon: true, content: true },
       });
 
       if (existingPreds.length > 0) {
-        console.log(`[predictor] Reposting existing predictions for: ${article.title}`);
-        await postPredictionsToTelegram(
-          predictionsThreadId,
-          existingPreds.map((p) => ({ predictionId: p.id, confidence: p.confidence, timeHorizon: p.timeHorizon ?? "unknown" })),
-          "",
-        );
+        console.log(`[predictor] Collecting existing predictions for: ${article.title}`);
+        for (const p of existingPreds) {
+          accumulated.push({ predictionId: p.id, confidence: p.confidence, timeHorizon: p.timeHorizon ?? "unknown", content: p.content });
+        }
       } else {
         console.log(`[predictor] Predicting: ${article.title}`);
         const output = await runScript(
@@ -195,7 +161,13 @@ async function main(): Promise<void> {
         };
 
         if (!result.skipped) {
-          await postPredictionsToTelegram(predictionsThreadId, result.predictions, result.connectionsToPast ?? "");
+          if (result.connectionsToPast) lastConnections = result.connectionsToPast;
+          for (const pred of result.predictions) {
+            const full = await db.prediction.findUnique({ where: { id: pred.predictionId }, select: { content: true } });
+            accumulated.push({ ...pred, content: full?.content ?? "" });
+          }
+        } else {
+          skipped++;
         }
       }
 
@@ -208,13 +180,34 @@ async function main(): Promise<void> {
     }
   }
 
+  // Post ONE prediction digest for all accumulated predictions
+  if (accumulated.length > 0) {
+    try {
+      await postPredictionDigest(accumulated, lastConnections || undefined);
+      console.log(`[predictor] Posted prediction digest (${accumulated.length} predictions, ${accumulated.filter(p => p.confidence >= DIGEST_MIN_CONFIDENCE).length} above threshold)`);
+    } catch (err) {
+      console.warn(`[predictor] Prediction digest failed: ${(err as Error).message}`);
+    }
+  }
+
   await db.agentConfig.upsert({
     where: { agentName: "prediction" },
     update: { lastRunAt: new Date(), lastError: null },
     create: { agentName: "prediction", lastRunAt: new Date() },
   }).catch(() => {});
 
+  const durationMs = Date.now() - startedAt.getTime();
   console.log(`[predictor] Complete: ${processed}/${articles.length} articles predicted`);
+
+  await postRunLog({
+    agent:     "prediction",
+    startedAt,
+    durationMs,
+    succeeded: processed,
+    skipped:   skipped > 0 ? skipped : undefined,
+    failed:    0,
+  }).catch(() => {});
+
   await disconnectAll();
 }
 

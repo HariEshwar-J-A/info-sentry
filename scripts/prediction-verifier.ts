@@ -85,20 +85,7 @@ async function duckduckgoSearch(query: string, maxResults = 5): Promise<SearchRe
   }
 }
 
-// ─── Telegram helper ──────────────────────────────────────────────────────────
-
-async function sendTelegram(text: string): Promise<void> {
-  const token = process.env["TELEGRAM_BOT_TOKEN"];
-  const adminId = process.env["TELEGRAM_ADMIN_ID"];
-  if (!token || !adminId) return;
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: adminId, text, parse_mode: "HTML" }),
-    });
-  } catch { /* best effort */ }
-}
+import { postToTopic, escHtml } from "./lib/telegram.js";
 
 // ─── LLM verdict ─────────────────────────────────────────────────────────────
 
@@ -374,15 +361,15 @@ async function main(): Promise<void> {
         },
       });
 
-      // Telegram notification
-      await sendTelegram(
-        `${emoji} <b>Prediction Verified</b>\n\n` +
-        `<b>Verdict:</b> ${result.verdict.replace(/_/g, " ")} (${Math.round(result.confidence * 100)}% sure)\n\n` +
-        `<b>Prediction:</b>\n<i>${prediction.content.slice(0, 280)}</i>\n\n` +
-        `<b>Analysis:</b>\n${result.resolutionAnalysis.slice(0, 600)}\n\n` +
-        (result.whatWasRight ? `✓ <b>Right:</b> ${result.whatWasRight.slice(0, 150)}\n` : "") +
-        (result.whatWasWrong ? `✗ <b>Wrong:</b> ${result.whatWasWrong.slice(0, 150)}\n` : "") +
-        `\n<b>From:</b> ${prediction.article.title.slice(0, 80)}`
+      // Post resolved prediction to Predictions topic
+      await postToTopic("Predictions",
+        `${emoji} <b>Prediction Resolved: ${result.verdict.replace(/_/g, " ")}</b>\n\n` +
+        `<b>Confidence:</b> ${Math.round(result.confidence * 100)}%\n` +
+        `<b>Prediction:</b>\n<i>${escHtml(prediction.content.slice(0, 280))}</i>\n\n` +
+        `<b>Analysis:</b>\n${escHtml(result.resolutionAnalysis.slice(0, 500))}\n\n` +
+        (result.whatWasRight ? `✓ <b>Right:</b> ${escHtml(result.whatWasRight.slice(0, 150))}\n` : "") +
+        (result.whatWasWrong ? `✗ <b>Wrong:</b> ${escHtml(result.whatWasWrong.slice(0, 150))}\n` : "") +
+        `\n<i>From: ${escHtml(prediction.article.title.slice(0, 80))}</i>`
       );
 
       verified++;

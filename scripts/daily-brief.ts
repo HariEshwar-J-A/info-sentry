@@ -18,24 +18,9 @@ import { getScoutDb, disconnectAll } from './lib/prisma.js'
 import { chatCompletion } from './lib/openrouter.js'
 import { canSpend, getMonthlySpend } from './lib/budget.js'
 import { getModelsForCurrentBudget } from './lib/models.js'
+import { postToDM, escHtml } from './lib/telegram.js'
 
-const BOT_TOKEN = process.env['TELEGRAM_BOT_TOKEN']
-const ADMIN_ID  = process.env['TELEGRAM_ADMIN_ID']
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-async function sendTelegram(text: string): Promise<void> {
-  if (!BOT_TOKEN || !ADMIN_ID) return
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: ADMIN_ID, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-  })
-  const data = (await res.json()) as { ok: boolean; description?: string }
-  if (!data.ok) console.warn(`[daily-brief] Telegram failed: ${data.description}`)
-}
+const MONTHLY_BUDGET_USD = parseFloat(process.env['MONTHLY_BUDGET_USD'] ?? '7.30')
 
 async function generateBriefForUser(
   db: ReturnType<typeof getScoutDb>,
@@ -154,16 +139,37 @@ Write a concise personalized brief covering the most significant developments.`
     },
   })
 
+  // Build system stats section
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const [articleCount24h, summaryCount24h, predCount24h, costLogs24h, agents] = await Promise.all([
+    db.article.count({ where: { scrapedAt: { gte: since24h } } }),
+    db.summary.count({ where: { createdAt: { gte: since24h } } }),
+    db.prediction.count({ where: { createdAt: { gte: since24h } } }),
+    db.costLog.findMany({ where: { createdAt: { gte: since24h } }, select: { totalCostUsd: true } }),
+    db.agentConfig.findMany({ select: { agentName: true, lastError: true, isActive: true } }),
+  ])
+
+  const todaySpend = costLogs24h.reduce((s, c) => s + c.totalCostUsd, 0)
+  const budgetPct  = ((todaySpend / MONTHLY_BUDGET_USD) * 100).toFixed(1)
+  const hasErrors  = agents.some(a => a.lastError)
+  const agentStatus = hasErrors
+    ? `⚠️ ${agents.filter(a => a.lastError).length} agent(s) with errors`
+    : '✅ All agents healthy'
+
   // Post to Telegram DM
-  const topicLine = `<i>Tracking: ${escHtml(topTopics)}</i>`
   const message = [
-    `<b>Daily Brief</b> — ${escHtml(date)}`,
-    topicLine,
+    `<b>🌅 Daily Brief</b> — ${escHtml(date)}`,
+    `<i>Tracking: ${escHtml(topTopics)}</i>`,
     '',
     escHtml(brief),
+    '',
+    '<b>📊 Last 24h</b>',
+    `• ${articleCount24h} articles scouted | ${summaryCount24h} summarized | ${predCount24h} predictions`,
+    `• Budget: $${todaySpend.toFixed(4)} / $${MONTHLY_BUDGET_USD.toFixed(2)} (${budgetPct}% daily pace)`,
+    `• ${agentStatus}`,
   ].join('\n')
 
-  await sendTelegram(message)
+  await postToDM(message)
   console.log(`[daily-brief] Sent for user ${userId}`)
 }
 

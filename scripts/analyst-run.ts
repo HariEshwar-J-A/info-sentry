@@ -24,6 +24,7 @@ import {
   isOpenRouterRateLimitExitCode,
   OPENROUTER_KEY_SETTINGS_URL,
 } from "./lib/openrouter.js";
+import { postToTopic, postRunLog, escHtml } from "./lib/telegram.js";
 
 const exec = promisify(execFile);
 const TSX = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -54,40 +55,10 @@ async function runScript(
   return lines[lines.length - 1] ?? "";
 }
 
-// ─── Telegram ─────────────────────────────────────────────────────────────
-
-const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
-const SUPERGROUP_ID = process.env["TELEGRAM_SUPERGROUP_ID"];
-const ADMIN_ID = process.env["TELEGRAM_ADMIN_ID"];
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function escHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-async function telegramApi(method: string, body: Record<string, unknown>, retries = 3): Promise<unknown> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as { ok: boolean; result?: unknown; description?: string; parameters?: { retry_after?: number } };
-    if (data.ok) return data.result;
-    const retryAfter = data.parameters?.retry_after;
-    if (retryAfter && attempt < retries - 1) {
-      console.warn(`[analyst] Telegram rate limit — waiting ${retryAfter}s`);
-      await sleep(retryAfter * 1000 + 500);
-      continue;
-    }
-    throw new Error(`Telegram ${method} failed: ${data.description ?? "unknown"}`);
-  }
-}
-
-// Batch threshold: post individual messages when ≤ this many articles,
-// otherwise post a single digest at the end.
-const BATCH_THRESHOLD = parseInt(process.env["ANALYST_BATCH_THRESHOLD"] ?? "3", 10);
+// Minimum relevance to include an article in the news digest
+const DIGEST_MIN_RELEVANCE = 0.60;
 
 interface CompletedSummary {
   article: { title: string; url: string };
@@ -95,76 +66,49 @@ interface CompletedSummary {
   content: string | null;
 }
 
-async function postSingleSummary(
-  threadId: number | undefined,
-  { article, summary, content }: CompletedSummary,
-): Promise<void> {
-  const sentimentDot = summary.sentimentScore > 0.3 ? "+" : summary.sentimentScore < -0.3 ? "-" : "~";
-  const sections: string[] = [
-    `[${sentimentDot}] <b>${escHtml(article.title)}</b>`,
-    "",
-  ];
-
-  if (content?.length) {
-    for (const para of content.split("\n").filter((p) => p.trim()).slice(0, 4)) {
-      sections.push(para.slice(0, 600));
-    }
-    sections.push("");
+async function postNewsDigest(items: CompletedSummary[]): Promise<void> {
+  const relevant = items.filter(i => i.summary.relevanceScore >= DIGEST_MIN_RELEVANCE);
+  if (relevant.length === 0) {
+    console.log("[analyst] No articles above 60% relevance — skipping news digest");
+    return;
   }
 
-  sections.push(`Topics: ${summary.keyTopics.join(", ")}`);
-  sections.push(`Relevance: ${(summary.relevanceScore * 100).toFixed(0)}%`);
-  sections.push(`<a href="${encodeURI(article.url)}">Source</a>`);
+  const sorted = [...relevant].sort((a, b) => b.summary.relevanceScore - a.summary.relevanceScore);
+  const dateStr = new Date().toLocaleString("en-CA", {
+    timeZone: "America/Toronto",
+    month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+    hour12: false,
+  });
 
-  const text = sections.join("\n");
-  const chatId = threadId ? SUPERGROUP_ID : ADMIN_ID;
-  const base: Record<string, unknown> = { chat_id: chatId, parse_mode: "HTML" };
-  if (threadId) base["message_thread_id"] = threadId;
-
-  const keyboard = {
-    inline_keyboard: [[
-      { text: "Relevant", callback_data: `like_summary_${summary.summaryId}` },
-      { text: "Not for me", callback_data: `dislike_summary_${summary.summaryId}` },
-    ]],
-  };
-
-  const MAX_LEN = 4096;
-  const msg = text.length > MAX_LEN ? text.slice(0, MAX_LEN - 3) + "..." : text;
-  await telegramApi("sendMessage", { ...base, text: msg, reply_markup: keyboard });
-}
-
-async function postBatchDigest(
-  threadId: number | undefined,
-  items: CompletedSummary[],
-): Promise<void> {
-  // Sort by relevance descending, take top items that fit in one message
-  const sorted = [...items].sort((a, b) => b.summary.relevanceScore - a.summary.relevanceScore);
-
-  const dateStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const lines: string[] = [
-    `<b>News Digest</b> — ${escHtml(dateStr)} (${items.length} articles)`,
+    `<b>📰 News Digest</b> — ${escHtml(dateStr)} ET (${relevant.length}/${items.length} articles)`,
     "",
   ];
 
   for (const item of sorted.slice(0, 8)) {
     const rel = Math.round(item.summary.relevanceScore * 100);
-    const snippet = item.content?.split("\n").find(p => p.trim().length > 20)?.slice(0, 200) ?? "";
-    lines.push(`<b><a href="${encodeURI(item.article.url)}">${escHtml(item.article.title)}</a></b> (${rel}%)`);
-    if (snippet) lines.push(escHtml(snippet) + (snippet.length >= 200 ? "…" : ""));
-    if (item.summary.keyTopics.length > 0) lines.push(`<i>${escHtml(item.summary.keyTopics.slice(0, 3).join(", "))}</i>`);
+    const relLabel = rel >= 80 ? "🔴 HIGH" : rel >= 60 ? "🟡 MED" : "🟢 LOW";
+    const snippet = item.content?.split("\n").find(p => p.trim().length > 20)?.slice(0, 180) ?? "";
+    lines.push(`${relLabel}: <b><a href="${encodeURI(item.article.url)}">${escHtml(item.article.title)}</a></b> (${rel}%)`);
+    if (snippet) lines.push(`   ${escHtml(snippet)}${snippet.length >= 180 ? "…" : ""}`);
+    if (item.summary.keyTopics.length > 0) {
+      lines.push(`   <i>${escHtml(item.summary.keyTopics.slice(0, 3).join(", "))}</i>`);
+    }
     lines.push("");
   }
 
-  const text = lines.join("\n").slice(0, 4096);
-  const chatId = threadId ? SUPERGROUP_ID : ADMIN_ID;
-  const base: Record<string, unknown> = { chat_id: chatId, parse_mode: "HTML", disable_web_page_preview: true };
-  if (threadId) base["message_thread_id"] = threadId;
-  await telegramApi("sendMessage", { ...base, text });
+  const firstId = sorted[0]?.summary.summaryId ?? "";
+  await postToTopic("Main-News", lines.join("\n"), firstId ? [[
+    { text: "👍 Relevant", callback_data: `like_summary_${firstId}` },
+    { text: "👎 Not for me", callback_data: `dislike_summary_${firstId}` },
+  ]] : undefined);
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  const startedAt = new Date();
   const db = getOpenClawDb();
   const interestId = parseInterestIdArg();
   const pipelineUserId = pipelineUserIdFromEnv();
@@ -187,13 +131,6 @@ async function main(): Promise<void> {
     console.warn("[analyst] OpenRouter key preflight:", msg);
   }
 
-  let mainNewsThreadId: number | undefined;
-  if (SUPERGROUP_ID) {
-    const topic = await db.forumTopic.findUnique({ where: { name: "Main-News" } });
-    mainNewsThreadId = topic?.telegramTopicId;
-    console.log(`[analyst] Main-News topic: ${mainNewsThreadId ?? "DM fallback"}`);
-  }
-
   const articles = await db.article.findMany({
     where: {
       status: "SCRAPED",
@@ -206,11 +143,13 @@ async function main(): Promise<void> {
 
   console.log(`[analyst] ${articles.length} SCRAPED articles to analyze`);
 
-  const useBatch = articles.length > BATCH_THRESHOLD;
   const completedSummaries: CompletedSummary[] = [];
+  const errors: string[] = [];
 
   let processed = 0;
+  let skipped = 0;
   let stoppedForKeyLimit = false;
+
   for (const article of articles) {
     try {
       console.log(`[analyst] Analyzing: ${article.title}`);
@@ -233,15 +172,9 @@ async function main(): Promise<void> {
         select: { content: true },
       });
 
-      const completed: CompletedSummary = { article, summary: result, content: summaryRecord?.content ?? null };
+      completedSummaries.push({ article, summary: result, content: summaryRecord?.content ?? null });
 
-      if (useBatch) {
-        // Collect for end-of-run digest
-        completedSummaries.push(completed);
-      } else {
-        // Post immediately for small batches
-        await postSingleSummary(mainNewsThreadId, completed);
-      }
+      if (result.relevanceScore < DIGEST_MIN_RELEVANCE) skipped++;
 
       await db.article.update({ where: { id: article.id }, data: { status: "SUMMARIZED", analyzedAt: new Date() } });
       processed++;
@@ -283,17 +216,17 @@ async function main(): Promise<void> {
         break;
       }
       console.error(`[analyst] Failed: ${article.title}`, err);
+      errors.push(article.title.slice(0, 80));
       await db.article.update({ where: { id: article.id }, data: { status: "FAILED" } }).catch(() => {});
     }
   }
 
-  // Post batch digest if we collected summaries
+  // Always post a single digest (only if ≥1 article above relevance threshold)
   if (completedSummaries.length > 0) {
     try {
-      await postBatchDigest(mainNewsThreadId, completedSummaries);
-      console.log(`[analyst] Posted batch digest for ${completedSummaries.length} articles`);
+      await postNewsDigest(completedSummaries);
     } catch (err) {
-      console.warn(`[analyst] Batch digest failed: ${(err as Error).message}`);
+      console.warn(`[analyst] News digest post failed: ${(err as Error).message}`);
     }
   }
 
@@ -307,7 +240,20 @@ async function main(): Promise<void> {
       .catch(() => {});
   }
 
+  const durationMs = Date.now() - startedAt.getTime();
   console.log(`[analyst] Complete: ${processed}/${articles.length} articles analyzed`);
+
+  // Post structured run log to Telegram Run-Log topic
+  await postRunLog({
+    agent:      "analyst",
+    startedAt,
+    durationMs,
+    succeeded:  processed,
+    skipped:    skipped > 0 ? skipped : undefined,
+    failed:     errors.length,
+    errors:     errors.length > 0 ? errors : undefined,
+  }).catch(() => {});
+
   await disconnectAll();
 }
 
