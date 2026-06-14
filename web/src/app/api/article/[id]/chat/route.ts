@@ -1,10 +1,24 @@
 import { prisma } from '@/lib/prisma'
 import { openrouter, CHAT_MODEL } from '@/lib/openrouter'
+import { requireUserId } from '@/lib/user'
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkBudgetBeforeChat } from '@/lib/budget-guard'
+import { logChatCost } from '@/lib/cost-logger'
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
+  const { userId } = auth
+
+  const limited = checkRateLimit(`${userId}:article-chat`, RATE_LIMITS.articleChat)
+  if (limited) return limited
+
+  const budgetBlocked = await checkBudgetBeforeChat(userId)
+  if (budgetBlocked) return budgetBlocked
+
   try {
     const { id: articleId } = await params
     const { message, history = [] } = (await request.json()) as {
@@ -52,11 +66,14 @@ Help the user analyze, question, and explore their reactions to this article. Be
       model: CHAT_MODEL,
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream: true,
+      stream_options: { include_usage: true },
       max_tokens: 800,
       temperature: 0.7,
     })
 
     const encoder = new TextEncoder()
+    let promptTokens = 0
+    let completionTokens = 0
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -66,8 +83,13 @@ Help the user analyze, question, and explore their reactions to this article. Be
             if (token) {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`))
             }
+            if (chunk.usage) {
+              promptTokens     = chunk.usage.prompt_tokens     ?? 0
+              completionTokens = chunk.usage.completion_tokens ?? 0
+            }
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          logChatCost(userId, CHAT_MODEL, { promptTokens, completionTokens })
         } catch (err) {
           console.error('Article chat stream error:', err)
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))

@@ -2,12 +2,10 @@ import { prisma } from '@/lib/prisma'
 import { openrouter, CHAT_MODEL } from '@/lib/openrouter'
 import { requireUserId } from '@/lib/user'
 import { getSourceIdsForUser } from '@/lib/feed'
-
-interface ChatBody {
-  message: string
-  history: { role: 'user' | 'assistant'; content: string }[]
-  sessionId?: string
-}
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { parseBody, ChatBodySchema } from '@/lib/validate'
+import { checkBudgetBeforeChat } from '@/lib/budget-guard'
+import { logChatCost } from '@/lib/cost-logger'
 
 async function buildSystemPrompt(userId: string): Promise<string> {
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000)
@@ -112,17 +110,18 @@ export async function POST(request: Request) {
   const auth = await requireUserId()
   if (auth instanceof Response) return auth
   const { userId } = auth
+
+  const limited = checkRateLimit(`${userId}:chat`, RATE_LIMITS.chat)
+  if (limited) return limited
+
+  const budgetBlocked = await checkBudgetBeforeChat(userId)
+  if (budgetBlocked) return budgetBlocked
+
+  const parsed = await parseBody(ChatBodySchema, request)
+  if (parsed instanceof Response) return parsed
+  const { message, history = [], sessionId: incomingSessionId } = parsed.data
+
   try {
-    const body = (await request.json()) as ChatBody
-    const { message, history = [], sessionId: incomingSessionId } = body
-
-    if (!message?.trim()) {
-      return new Response(JSON.stringify({ error: 'Message is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
     // Session management
     let sessionId = incomingSessionId ?? null
 
@@ -157,12 +156,15 @@ export async function POST(request: Request) {
       model: CHAT_MODEL,
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream: true,
+      stream_options: { include_usage: true },
       max_tokens: 1024,
       temperature: 0.7,
     })
 
     const encoder = new TextEncoder()
     let fullResponse = ''
+    let promptTokens = 0
+    let completionTokens = 0
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -173,21 +175,27 @@ export async function POST(request: Request) {
               fullResponse += token
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`))
             }
+            if (chunk.usage) {
+              promptTokens     = chunk.usage.prompt_tokens     ?? 0
+              completionTokens = chunk.usage.completion_tokens ?? 0
+            }
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
 
-          // Persist messages after streaming completes
-          await prisma.webChatMessage.createMany({
-            data: [
-              { sessionId: finalSessionId, role: 'USER', content: message },
-              { sessionId: finalSessionId, role: 'ASSISTANT', content: fullResponse },
-            ],
-          })
-          // Update session updatedAt
-          await prisma.webChatSession.update({
-            where: { id: finalSessionId },
-            data: { updatedAt: new Date() },
-          })
+          // Persist messages + log cost (fire-and-forget in parallel)
+          await Promise.all([
+            prisma.webChatMessage.createMany({
+              data: [
+                { sessionId: finalSessionId, role: 'USER', content: message },
+                { sessionId: finalSessionId, role: 'ASSISTANT', content: fullResponse },
+              ],
+            }),
+            prisma.webChatSession.update({
+              where: { id: finalSessionId },
+              data:  { updatedAt: new Date() },
+            }),
+            logChatCost(userId, CHAT_MODEL, { promptTokens, completionTokens }),
+          ])
         } catch (err) {
           console.error('Stream error:', err)
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
