@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/user'
+import { parseBody, InterestCreateSchema } from '@/lib/validate'
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 export async function GET(req: Request) {
   const auth = await requireUserId()
@@ -57,18 +59,15 @@ export async function POST(req: Request) {
   const auth = await requireUserId()
   if (auth instanceof Response) return auth
   const { userId } = auth
+
+  const limited = checkRateLimit(`${userId}:interest-write`, RATE_LIMITS.interestWrite)
+  if (limited) return limited
+
+  const parsed = await parseBody(InterestCreateSchema, req)
+  if (parsed instanceof Response) return parsed
+  const { topic, description, trackNews, trackGithub } = parsed.data
+
   try {
-    const { topic, description, trackNews, trackGithub } = (await req.json()) as {
-      topic: string
-      description?: string
-      trackNews?: boolean
-      trackGithub?: boolean
-    }
-
-    if (!topic?.trim()) {
-      return Response.json({ error: 'Topic is required' }, { status: 400 })
-    }
-
     // Check duplicate
     const existing = await prisma.interest.findUnique({
       where: { userId_topic: { userId, topic: topic.trim() } },
