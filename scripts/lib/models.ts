@@ -44,10 +44,10 @@ export const DEEPSEEK_V3: ModelConfig = {
   security: "medium",
 };
 
-// Tier 2: Balanced ($0.10-0.50/1M) — Gemini Flash default for analyst / scout pipelines
+// Tier 2: Balanced ($0.10-0.40/1M) — Gemini Flash Lite default for analyst / scout pipelines
 export const TIER_2_BALANCED: ModelConfig = {
-  id: "google/gemini-2.0-flash-001",
-  name: "Gemini 2.0 Flash",
+  id: "google/gemini-2.5-flash-lite",
+  name: "Gemini 2.5 Flash Lite",
   provider: "openrouter",
   tier: 2,
   promptCostPer1M: 0.10,
