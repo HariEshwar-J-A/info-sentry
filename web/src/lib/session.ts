@@ -13,7 +13,8 @@ export async function getSessionUserId(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(SESSION_COOKIE)?.value
   if (!token) return null
-  const secret = process.env.WEB_AUTH_SECRET ?? 'dev-secret-change-me'
+  const secret = process.env.WEB_AUTH_SECRET
+  if (!secret) return null
   const result = await verifyToken(token, secret)
   return result.valid ? result.userId : null
 }

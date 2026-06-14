@@ -4,13 +4,29 @@ import type { NextConfig } from 'next'
 // Leave unset for subdomain or local development (served at /)
 const basePath = process.env.BASE_PATH ?? ''
 
+// Next.js 15 requires 'unsafe-inline' + 'unsafe-eval' for its runtime.
+// Future: switch to nonce-based CSP once on a stable Next.js release that
+// supports nonce injection without patching _document.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' blob: data: https:",
+  "connect-src 'self' https://oauth2.googleapis.com https://accounts.google.com",
+  "font-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ')
+
 const securityHeaders = [
-  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-  { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()' },
+  { key: 'Content-Security-Policy',   value: CSP },
+  { key: 'X-Frame-Options',           value: 'SAMEORIGIN' },
+  { key: 'X-Content-Type-Options',    value: 'nosniff' },
+  { key: 'Referrer-Policy',           value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy',        value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()' },
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
-  { key: 'X-XSS-Protection', value: '1; mode=block' },
+  { key: 'X-XSS-Protection',          value: '1; mode=block' },
 ]
 
 const nextConfig: NextConfig = {
