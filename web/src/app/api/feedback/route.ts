@@ -1,25 +1,18 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/user'
-
-interface FeedbackBody {
-  articleId: string
-  type: 'like' | 'dislike'
-  topics: string[]
-}
+import { parseBody, FeedbackBodySchema } from '@/lib/validate'
 
 export async function POST(request: Request) {
   const auth = await requireUserId()
   if (auth instanceof Response) return auth
   const { userId } = auth
+
+  const parsed = await parseBody(FeedbackBodySchema, request)
+  if (parsed instanceof Response) return parsed
+  const { articleId, type, topics } = parsed.data
+
   try {
-    const body = (await request.json()) as FeedbackBody
-    const { articleId, type, topics } = body
-
-    if (!type || !['like', 'dislike'].includes(type)) {
-      return NextResponse.json({ error: 'Invalid feedback type' }, { status: 400 })
-    }
-
     const scoreDelta = type === 'like' ? 0.2 : -0.1
     const signal = type === 'like' ? 'LIKE' : 'DISLIKE'
 
