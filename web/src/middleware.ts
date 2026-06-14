@@ -14,15 +14,16 @@ export type VerifyTokenResult =
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Root path '/' is the public landing page — pass through unauthenticated
+  if (pathname === '/') return NextResponse.next()
+
   if (PUBLIC_PREFIXES.some(p => pathname.startsWith(p))) return NextResponse.next()
 
   // If session secret is not configured, bypass auth (local dev / first run)
-  // Using WEB_AUTH_SECRET here avoids accidental bypass when oauth env is present
-  // but legacy username/password vars are not set in web/.env.local.
   if (!process.env.WEB_AUTH_SECRET) return NextResponse.next()
 
   const token  = request.cookies.get(SESSION_COOKIE)?.value
-  const secret = process.env.WEB_AUTH_SECRET ?? 'dev-secret-change-me'
+  const secret = process.env.WEB_AUTH_SECRET
 
   const verified = token ? await verifyToken(token, secret) : { valid: false as const }
   if (!verified.valid) {
