@@ -4,6 +4,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Zap } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 
+interface BudgetSettings {
+  spentUsd: number
+  budgetUsd: number
+  percent: number
+  mode: 'global' | 'per_user'
+  globalCapUsd: number
+  defaultPerUserCapUsd: number
+}
+
 interface AgentInfo {
   name: string
   label: string
@@ -115,6 +124,12 @@ export default function SettingsPage() {
   const [cronDraft, setCronDraft] = useState('')
   const abortRefs = useRef<Record<string, AbortController>>({})
 
+  // Budget settings
+  const [budget, setBudget] = useState<BudgetSettings | null>(null)
+  const [budgetSaving, setBudgetSaving] = useState(false)
+  const [budgetDraft, setBudgetDraft] = useState<Partial<BudgetSettings>>({})
+  const [isAdmin, setIsAdmin] = useState(false)
+
   const fetchAgents = useCallback(() => {
     fetch('/api/agents')
       .then(r => r.json())
@@ -131,6 +146,38 @@ export default function SettingsPage() {
     const id = setInterval(fetchAgents, 5000) // poll every 5s for live status
     return () => clearInterval(id)
   }, [fetchAgents])
+
+  useEffect(() => {
+    fetch('/api/budget')
+      .then(r => r.json())
+      .then((d: BudgetSettings) => {
+        setBudget(d)
+        setBudgetDraft({ mode: d.mode, globalCapUsd: d.globalCapUsd, defaultPerUserCapUsd: d.defaultPerUserCapUsd })
+      })
+      .catch(() => {})
+    // Check admin status via a PATCH probe — 403 = not admin, 200/422 = admin
+    fetch('/api/budget', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(r => setIsAdmin(r.status !== 403))
+      .catch(() => {})
+  }, [])
+
+  async function saveBudget() {
+    setBudgetSaving(true)
+    try {
+      const res = await fetch('/api/budget', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(budgetDraft),
+      })
+      if (res.ok) {
+        const d = await res.json() as BudgetSettings
+        setBudget(prev => prev ? { ...prev, ...d } : prev)
+        setBudgetDraft({ mode: d.mode, globalCapUsd: d.globalCapUsd, defaultPerUserCapUsd: d.defaultPerUserCapUsd })
+      }
+    } finally {
+      setBudgetSaving(false)
+    }
+  }
 
   async function handleModelChange(agentName: string, modelId: string) {
     setSavingModel(agentName)
@@ -293,6 +340,80 @@ export default function SettingsPage() {
           <div>
             <div style={{ fontSize: '12px', color: '#555', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Pipeline Output</div>
             <LogPanel lines={pipelineLogs} onClear={() => setPipelineLogs([])} />
+          </div>
+        )}
+
+        {/* Budget settings card */}
+        {budget && (
+          <div>
+            <div style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>
+              AI Budget
+            </div>
+            <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Spend meter */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '12px', color: '#8a8a8a' }}>This month</span>
+                  <span style={{ fontSize: '12px', color: '#f0f0f0', fontFamily: 'monospace' }}>
+                    ${budget.spentUsd.toFixed(4)} / ${budget.budgetUsd.toFixed(2)}
+                  </span>
+                </div>
+                <div style={{ height: '4px', backgroundColor: '#1a1a1a', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: '2px', transition: 'width 0.4s',
+                    width: `${Math.min(budget.percent, 100)}%`,
+                    backgroundColor: budget.percent > 80 ? '#ef4444' : budget.percent > 60 ? '#eab308' : '#6366f1',
+                  }} />
+                </div>
+                <div style={{ fontSize: '11px', color: '#555', marginTop: '4px' }}>{budget.percent.toFixed(1)}% used</div>
+              </div>
+
+              {/* Mode toggle + cap editors (admin only) */}
+              {isAdmin ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', color: '#8a8a8a', minWidth: '90px' }}>Mode</span>
+                    {(['global', 'per_user'] as const).map(m => (
+                      <button key={m} onClick={() => setBudgetDraft(p => ({ ...p, mode: m }))}
+                        style={{
+                          padding: '4px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', border: 'none',
+                          background: budgetDraft.mode === m ? '#6366f1' : '#1a1a1a',
+                          color: budgetDraft.mode === m ? '#fff' : '#8a8a8a',
+                          fontWeight: budgetDraft.mode === m ? 600 : 400,
+                        }}>
+                        {m === 'global' ? 'Global cap' : 'Per user'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#8a8a8a' }}>
+                      Global cap ($)
+                      <input type="number" min="0.01" step="0.10" value={budgetDraft.globalCapUsd ?? budget.globalCapUsd}
+                        onChange={e => setBudgetDraft(p => ({ ...p, globalCapUsd: parseFloat(e.target.value) }))}
+                        style={{ width: '80px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#f0f0f0', fontSize: '12px', padding: '4px 8px', fontFamily: 'monospace', outline: 'none' }}
+                      />
+                    </label>
+                    {budgetDraft.mode === 'per_user' && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#8a8a8a' }}>
+                        Default per-user cap ($)
+                        <input type="number" min="0.01" step="0.10" value={budgetDraft.defaultPerUserCapUsd ?? budget.defaultPerUserCapUsd}
+                          onChange={e => setBudgetDraft(p => ({ ...p, defaultPerUserCapUsd: parseFloat(e.target.value) }))}
+                          style={{ width: '80px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#f0f0f0', fontSize: '12px', padding: '4px 8px', fontFamily: 'monospace', outline: 'none' }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <button onClick={() => void saveBudget()} disabled={budgetSaving}
+                    style={{ alignSelf: 'flex-start', padding: '6px 16px', borderRadius: '6px', border: 'none', background: '#6366f1', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: budgetSaving ? 'wait' : 'pointer', opacity: budgetSaving ? 0.7 : 1 }}>
+                    {budgetSaving ? 'Saving…' : 'Save budget settings'}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ fontSize: '12px', color: '#555' }}>Budget mode: <span style={{ color: '#8a8a8a' }}>{budget.mode === 'global' ? 'Global cap' : 'Per user'}</span></div>
+              )}
+            </div>
           </div>
         )}
 
