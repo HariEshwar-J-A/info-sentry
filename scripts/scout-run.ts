@@ -73,6 +73,7 @@ interface ArticleData {
 
 class SgaiBudget {
   private _used = 0;
+  private _disabled = false;
   constructor(readonly max: number) {}
   get used(): number {
     return this._used;
@@ -83,8 +84,11 @@ class SgaiBudget {
   recordCall(): void {
     this._used++;
   }
+  disable(): void {
+    this._disabled = true;
+  }
   canUse(): boolean {
-    return this._used < this.max;
+    return !this._disabled && this._used < this.max;
   }
 }
 
@@ -427,7 +431,8 @@ async function parseRssFeed(rssUrl: string, limit = MAX_PER_TOPIC): Promise<Arti
     const articles: ArticleData[] = [];
 
     for (const item of itemArr) {
-      const rawUrl: string = item.link?.href ?? item.link ?? "";
+      const linkVal = item.link?.href ?? item.link;
+      const rawUrl = typeof linkVal === "string" ? linkVal : "";
       const guid: string = typeof item.guid === "object" ? item.guid._ ?? "" : item.guid ?? "";
       const url = isGoogleNews && guid ? `https://news.google.com/rss/articles/${guid}` : rawUrl.trim();
       if (!url) continue;
@@ -558,7 +563,12 @@ async function ingestArticleFromStub(
         article = merged;
       }
     } catch (err) {
-      console.warn(`[scout]   SGAI scrape failed: ${(err as Error).message}`);
+      const msg = (err as Error).message;
+      console.warn(`[scout]   SGAI scrape failed: ${msg}`);
+      if (msg.includes("401") || msg.includes("User not found")) {
+        sgai.disable();
+        console.warn("[scout]   SGAI auth failure — disabling for this run");
+      }
     }
   }
 
@@ -790,8 +800,12 @@ async function scrapeManualSource(
         };
         const merged = mergeSmartIntoArticle(fakeDiscovery, smart, targetUrl);
         if (merged.content.length >= 80) crawled = merged;
-      } catch {
-        /* fall through */
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        if (msg.includes("401") || msg.includes("User not found")) {
+          sgai.disable();
+          console.warn("[scout]   SGAI auth failure — disabling for this run");
+        }
       }
     }
 
