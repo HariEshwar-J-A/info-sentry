@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { cookies } from 'next/headers'
 import './globals.css'
 import { Sidebar }   from '@/components/shell/Sidebar'
 import { BottomNav } from '@/components/shell/BottomNav'
@@ -15,7 +16,10 @@ export const viewport: Viewport = {
   userScalable: false,
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const store = await cookies()
+  const isAuthenticated = !!store.get('is_auth')?.value
+
   return (
     <html lang="en" className="dark">
       <head>
@@ -27,11 +31,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body style={{ backgroundColor: '#0a0a0a', color: '#f0f0f0', margin: 0, display: 'flex', minHeight: '100vh' }}>
-        <Sidebar />
-        <main className="layout-main">
+        {isAuthenticated && <Sidebar />}
+        <main className={isAuthenticated ? 'layout-main' : undefined} style={isAuthenticated ? undefined : { width: '100%' }}>
           {children}
         </main>
-        <BottomNav />
+        {isAuthenticated && <BottomNav />}
       </body>
     </html>
   )
