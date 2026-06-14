@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   }
 
   // CSRF: verify signed state (no cookies required)
-  const secret = process.env.WEB_AUTH_SECRET ?? 'dev-secret-change-me'
+  const secret = process.env.WEB_AUTH_SECRET ?? ''
   const okState = await verifySignedState(state, secret)
   if (!okState) return NextResponse.redirect(`${appUrl}/login?error=state_mismatch`)
 
@@ -65,20 +65,35 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${appUrl}/login/unauthorized`)
   }
 
+  // Admin status is derived from ADMIN_EMAILS env var (local machine only, never exposed via API).
+  // Re-evaluated on every login so removing an email from .env.local revokes access on next sign-in.
+  const adminEmails = (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+  const isAdmin = adminEmails.includes(user.email.toLowerCase())
+
   const dbUser = await prisma.user.upsert({
     where:  { googleSub: user.id },
     update: {
       email:   user.email,
       name:    user.name,
       picture: user.picture,
+      isAdmin,
     },
     create: {
       googleSub: user.id,
       email:     user.email,
       name:      user.name,
       picture:   user.picture,
+      isAdmin,
     },
   })
+
+  // Log sign-in activity for the Telegram run-log bridge
+  prisma.userActivityLog.create({
+    data: { userId: dbUser.id, email: user.email, action: 'signed in' },
+  }).catch(() => {})
 
   // Issue session cookie (embeds Prisma user id)
   const token  = await createToken(secret, dbUser.id)
