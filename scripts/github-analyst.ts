@@ -14,9 +14,7 @@ import { chatCompletion } from "./lib/openrouter.js";
 import { logCost, canSpend, getMonthlySpend } from "./lib/budget.js";
 import { getModelsForCurrentBudget, TIER_3_BUDGET, type ModelConfig } from "./lib/models.js";
 import { pipelineUserIdFromEnv } from "./lib/pipeline-scope.js";
-
-const BOT_TOKEN  = process.env["TELEGRAM_BOT_TOKEN"];
-const SUPERGROUP = process.env["TELEGRAM_SUPERGROUP_ID"];
+import { postToTopic, postRunLog, escHtml as _escHtml } from "./lib/telegram.js";
 
 const SYSTEM_PROMPT = `You are a technical analyst evaluating GitHub repositories for software developers.
 
@@ -37,9 +35,7 @@ Critical rules:
 
 // ─── Telegram helpers ───────────────────────────────────────
 
-function escHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-}
+const escHtml = _escHtml
 
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -47,53 +43,47 @@ function fmtNum(n: number): string {
   return String(n)
 }
 
-async function telegramApi(method: string, body: Record<string, unknown>): Promise<void> {
-  if (!BOT_TOKEN || !SUPERGROUP) return
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  const data = (await res.json()) as { ok: boolean; description?: string }
-  if (!data.ok) console.warn(`[github-analyst] Telegram ${method} failed: ${data.description}`)
+// Minimum star delta OR all repos get included in the digest (no threshold filter)
+const DIGEST_STAR_THRESHOLD = 200
+
+interface NotifyRepo {
+  id: string; fullName: string; url: string; description: string | null
+  stars: number; starDelta: number; language: string | null; topics: string[]
+  aiSummary: string | null
 }
 
-async function postRepoToTelegram(
-  threadId: number | undefined,
-  repo: {
-    fullName: string; url: string; description: string | null; stars: number;
-    starDelta: number; language: string | null; topics: string[]; aiSummary: string | null;
-  },
-): Promise<void> {
-  if (!BOT_TOKEN || !SUPERGROUP) return
+async function postGitHubDigest(repos: NotifyRepo[]): Promise<void> {
+  // Filter: include repos meeting star threshold OR include all if none qualify
+  const notable = repos.filter(r => r.starDelta >= DIGEST_STAR_THRESHOLD || r.stars >= 500)
+  const toShow = notable.length > 0 ? notable : repos
 
-  const [owner, name] = repo.fullName.split("/")
-  const trendBadge = repo.starDelta > 0 ? ` +${fmtNum(repo.starDelta)} ⭐` : ""
-  const langPart   = repo.language ? ` · ${escHtml(repo.language)}` : ""
+  if (toShow.length === 0) return
+
+  const dateStr = new Date().toLocaleString("en-CA", {
+    timeZone: "America/Toronto", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  })
 
   const lines: string[] = [
-    `⭐ <b><a href="${repo.url}">${escHtml(owner ?? "")}/${escHtml(name ?? "")}</a></b>${trendBadge}`,
-    `<i>${fmtNum(repo.stars)} stars${langPart}</i>`,
+    `<b>⭐ GitHub Highlights</b> — ${escHtml(dateStr)} ET (${toShow.length} repo${toShow.length > 1 ? "s" : ""})`,
+    "",
   ]
 
-  if (repo.description) lines.push("", escHtml(repo.description))
-  if (repo.aiSummary)   lines.push("", `🤖 ${escHtml(repo.aiSummary)}`)
-
-  const visibleTopics = repo.topics.slice(0, 5)
-  if (visibleTopics.length > 0) {
-    lines.push("", visibleTopics.map(t => `#${t.replace(/-/g, "_")}`).join(" "))
+  for (const repo of toShow.slice(0, 8)) {
+    const [owner, name] = repo.fullName.split("/")
+    const trendBadge = repo.starDelta > 0 ? ` +${fmtNum(repo.starDelta)}⭐` : ""
+    const langPart   = repo.language ? ` · ${escHtml(repo.language)}` : ""
+    lines.push(`🔥 <b><a href="${repo.url}">${escHtml(owner ?? "")}/${escHtml(name ?? "")}</a></b>${trendBadge}`)
+    lines.push(`<i>${fmtNum(repo.stars)} stars${langPart}</i>`)
+    if (repo.aiSummary) {
+      lines.push(escHtml(repo.aiSummary.slice(0, 160)) + (repo.aiSummary.length > 160 ? "…" : ""))
+    } else if (repo.description) {
+      lines.push(escHtml(repo.description.slice(0, 120)))
+    }
+    lines.push("")
   }
 
-  const text = lines.join("\n")
-  const body: Record<string, unknown> = {
-    chat_id: SUPERGROUP,
-    text: text.slice(0, 4096),
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-  }
-  if (threadId !== undefined) body["message_thread_id"] = threadId
-
-  await telegramApi("sendMessage", body)
+  await postToTopic("GitHub-Feed", lines.join("\n"))
 }
 
 // ─── LLM summarization with model fallback chain ────────────
@@ -125,6 +115,7 @@ async function summarizeWithFallback(
 // ─── Main ───────────────────────────────────────────────────
 
 async function main() {
+  const startedAt = new Date()
   const args = Object.fromEntries(
     process.argv.slice(2).map(a => a.replace(/^--/, "").split("="))
   ) as { interestId?: string; limit?: string }
@@ -165,13 +156,8 @@ async function main() {
     : scopedInterestIds ? { interestId: { in: scopedInterestIds } }
     : {}
 
-  // Resolve GitHub-Feed Telegram thread
-  let githubFeedThreadId: number | undefined
-  if (BOT_TOKEN && SUPERGROUP) {
-    const topic = await db.forumTopic.findUnique({ where: { name: "GitHub-Feed" } })
-    githubFeedThreadId = topic?.telegramTopicId
-    console.log(`[github-analyst] GitHub-Feed thread: ${githubFeedThreadId ?? "not found (run ensure-all)"}`)
-  }
+  // Log which Telegram topic will be used (thread ID resolved lazily in postToTopic)
+  console.log("[github-analyst] Telegram: GitHub-Feed topic (via lib/telegram.ts)")
 
   if (!(await canSpend("github-analyst"))) {
     console.log("[github-analyst] Budget exceeded — skipping")
@@ -187,6 +173,7 @@ async function main() {
     (m, i, arr) => arr.findIndex(x => x.id === m.id) === i, // dedupe
   )
   console.log(`[github-analyst] Model chain: ${fallbackModels.map(m => m.name).join(" → ")}`)
+  let activeModel = primaryModel.name
 
   // ── Phase 0: clear summaries that contain known preamble patterns ──────────
   // Old prompt caused the model to emit "Here is a 2-3 sentence summary of..."
@@ -238,6 +225,7 @@ async function main() {
 
       const { response, model } = await summarizeWithFallback(context, fallbackModels)
       const aiSummary = response.content.trim()
+      activeModel = model.name
 
       await db.gitHubRepo.update({
         where: { id: repo.id },
@@ -254,7 +242,7 @@ async function main() {
 
   console.log(`[github-analyst] Done: ${processed}/${toSummarize.length} summaries generated`)
 
-  // ── Phase 2: post unnotified repos to Telegram GitHub-Feed ──────────────────
+  // ── Phase 2: post unnotified repos as ONE digest to Telegram GitHub-Feed ────
   const toNotify = await db.gitHubRepo.findMany({
     where: {
       notifiedAt: null,
@@ -268,20 +256,36 @@ async function main() {
     },
   })
 
+  let notified = 0
   if (toNotify.length === 0) {
     console.log("[github-analyst] No new repos to notify")
   } else {
-    console.log(`[github-analyst] Posting ${toNotify.length} new repo(s) to GitHub-Feed`)
-    for (const repo of toNotify) {
-      try {
-        await postRepoToTelegram(githubFeedThreadId, repo)
-        await db.gitHubRepo.update({ where: { id: repo.id }, data: { notifiedAt: new Date() } })
-        console.log(`[github-analyst] 📨 Notified: ${repo.fullName}`)
-      } catch (err) {
-        console.error(`[github-analyst] ✗ notify ${repo.fullName}: ${(err as Error).message}`)
-      }
+    console.log(`[github-analyst] Posting digest for ${toNotify.length} new repo(s) to GitHub-Feed`)
+    try {
+      await postGitHubDigest(toNotify)
+      // Mark all notified in one pass
+      await db.gitHubRepo.updateMany({
+        where: { id: { in: toNotify.map(r => r.id) } },
+        data: { notifiedAt: new Date() },
+      })
+      notified = toNotify.length
+      console.log(`[github-analyst] 📨 Digest posted for ${toNotify.length} repos`)
+    } catch (err) {
+      console.error(`[github-analyst] ✗ digest post failed: ${(err as Error).message}`)
     }
   }
+
+  const durationMs = Date.now() - startedAt.getTime()
+
+  await postRunLog({
+    agent:     "github-analyst",
+    startedAt,
+    durationMs,
+    succeeded: processed + notified,
+    skipped:   toSummarize.length - processed > 0 ? toSummarize.length - processed : undefined,
+    failed:    0,
+    model:     processed > 0 ? activeModel : undefined,
+  }).catch(() => {})
 
   await disconnectAll()
 }
