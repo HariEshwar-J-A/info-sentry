@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/user'
 
 export async function POST(_req: Request, { params }: { params: Promise<{ name: string }> }) {
+  const auth = await requireUserId()
+  if (auth instanceof Response) return auth
   const { name } = await params
   try {
     const config = await prisma.agentConfig.findUnique({ where: { agentName: name } })
