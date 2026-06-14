@@ -3,12 +3,26 @@ import path from 'path'
 import { agentProcesses, REPO_ROOT } from '@/lib/agents'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/user'
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 // Full pipeline: scout → analyst pipeline (sequential)
 export async function POST() {
   const auth = await requireUserId()
   if (auth instanceof Response) return auth
   const { userId } = auth
+
+  const limited = checkRateLimit(`${userId}:pipeline`, RATE_LIMITS.pipelineRun)
+  if (limited) return limited
+
+  // Log pipeline trigger for the Telegram run-log bridge (fire-and-forget)
+  void (async () => {
+    try {
+      const u = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+      if (u?.email) {
+        await prisma.userActivityLog.create({ data: { userId, email: u.email, action: 'triggered pipeline run' } })
+      }
+    } catch { /* non-fatal */ }
+  })()
 
   const key = '__full_pipeline__'
 
