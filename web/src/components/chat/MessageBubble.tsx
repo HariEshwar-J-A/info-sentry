@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { InfoSentryLogo } from '@/components/shell/InfoSentryLogo'
 
 export interface Message {
   id: string
@@ -70,21 +71,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       }}
     >
       {/* Avatar */}
-      <div
-        style={{
-          width: '28px',
-          height: '28px',
-          borderRadius: '8px',
-          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '12px',
-          flexShrink: 0,
-          marginTop: '2px',
-        }}
-      >
-        ◉
+      <div style={{ flexShrink: 0, marginTop: '2px' }}>
+        <InfoSentryLogo variant="badge" size={28} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>

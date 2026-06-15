@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Rss, GitBranch, MessageSquare, Tag, Activity, Database, Target,
-  Sparkles, Settings, Bell, LogOut, Newspaper, Zap, Cog, Video,
+  Sparkles, Settings, Bell, LogOut, Newspaper, Cog, Video,
 } from 'lucide-react'
+import { InfoSentryLogo } from './InfoSentryLogo'
 
 // ─── Notification Sound ────────────────────────────────────
 
@@ -35,15 +36,15 @@ function playNotificationSound(count: number) {
 interface NavItem { href: string; label: string; icon: React.ReactNode }
 
 const NAV: NavItem[] = [
-  { href: '/feed',        label: 'Feed',        icon: <Rss size={18} /> },
-  { href: '/github-feed', label: 'GitHub Feed',  icon: <GitBranch size={18} /> },
-  { href: '/video-feed',  label: 'Video Feed',   icon: <Video size={18} /> },
-  { href: '/chat',        label: 'Chat',         icon: <MessageSquare size={18} /> },
+  { href: '/feed',        label: 'iFeeds',       icon: <Rss size={18} /> },
+  { href: '/predictions', label: 'iPredictions', icon: <Target size={18} /> },
+  { href: '/github-feed', label: 'iGitHub',      icon: <GitBranch size={18} /> },
+  { href: '/video-feed',  label: 'iVideos',      icon: <Video size={18} /> },
+  { href: '/chat',        label: 'iChat',        icon: <MessageSquare size={18} /> },
   { href: '/topics',      label: 'Topics',       icon: <Tag size={18} /> },
-  { href: '/runs',        label: 'Runs',         icon: <Activity size={18} /> },
-  { href: '/sources',     label: 'Sources',      icon: <Database size={18} /> },
-  { href: '/predictions', label: 'Predictions',  icon: <Target size={18} /> },
   { href: '/surprise',    label: 'Surprise Me',  icon: <Sparkles size={18} /> },
+  { href: '/sources',     label: 'Sources',      icon: <Database size={18} /> },
+  { href: '/runs',        label: 'Runs',         icon: <Activity size={18} /> },
   { href: '/settings',    label: 'Settings',     icon: <Settings size={18} /> },
 ]
 
@@ -173,9 +174,7 @@ export function Sidebar() {
       {/* Logo */}
       <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid #1a1a1a' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
-          <div style={{ width: '28px', height: '28px', flexShrink: 0, borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Zap size={14} color="#fff" strokeWidth={2.5} />
-          </div>
+          <InfoSentryLogo variant="badge" size={28} />
           <div className="sidebar-logo-text">
             <div style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0', letterSpacing: '-0.02em' }}>Info-Sentry</div>
             <div style={{ fontSize: '11px', color: '#8a8a8a' }}>AI News Intelligence</div>

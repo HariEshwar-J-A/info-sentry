@@ -29,7 +29,7 @@ export const AGENT_DEFS: Record<string, {
   scout: {
     label: 'Scout',
     description: 'Multi-source discovery + ScrapeGraph sidecar for LLM extraction',
-    icon: '🔍',
+    icon: 'Search',
     script: 'scripts/scout-run.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '0 */6 * * *',
@@ -38,7 +38,7 @@ export const AGENT_DEFS: Record<string, {
   analyst: {
     label: 'Analyst',
     description: 'Summarizes SCRAPED articles → embeddings → Telegram → marks SUMMARIZED',
-    icon: '🧠',
+    icon: 'Brain',
     script: 'scripts/analyst-run.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '30 */6 * * *',
@@ -47,7 +47,7 @@ export const AGENT_DEFS: Record<string, {
   prediction: {
     label: 'Predictor',
     description: 'Generates predictions from SUMMARIZED articles → posts to Telegram',
-    icon: '🎯',
+    icon: 'Target',
     script: 'scripts/predictor-run.ts',
     defaultModel: 'moonshotai/kimi-k2.6',
     defaultCron: '0 */12 * * *',
@@ -56,7 +56,7 @@ export const AGENT_DEFS: Record<string, {
   'prediction-verifier': {
     label: 'Prediction Verifier',
     description: 'Checks tracked predictions against recent news (chain-of-thought + DuckDuckGo)',
-    icon: '🔮',
+    icon: 'ShieldCheck',
     script: 'scripts/prediction-verifier.ts',
     defaultModel: 'moonshotai/kimi-k2.6',
     defaultCron: '0 */6 * * *',
@@ -67,7 +67,7 @@ export const AGENT_DEFS: Record<string, {
   'github-scout': {
     label: 'GitHub Scout',
     description: 'Discovers trending GitHub repos per topic via GitHub Search API',
-    icon: '⭐',
+    icon: 'Star',
     script: 'scripts/github-scout.ts',
     defaultModel: 'openai/gpt-4o-mini',
     defaultCron: '0 */12 * * *',
@@ -76,7 +76,7 @@ export const AGENT_DEFS: Record<string, {
   'github-analyst': {
     label: 'GitHub Analyst',
     description: 'Generates AI summaries for GitHub repos and posts new ones to Telegram',
-    icon: '🤖',
+    icon: 'Bot',
     script: 'scripts/github-analyst.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '30 */12 * * *',
@@ -87,7 +87,7 @@ export const AGENT_DEFS: Record<string, {
   'youtube-scout': {
     label: 'YouTube Scout',
     description: 'Polls YouTube channel RSS feeds, extracts transcripts via yt-dlp',
-    icon: '📺',
+    icon: 'Tv',
     script: 'scripts/scout-youtube.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '0 */8 * * *',
@@ -96,7 +96,7 @@ export const AGENT_DEFS: Record<string, {
   'video-analyst': {
     label: 'Video Analyst',
     description: 'Generates AI summaries for videos with transcripts',
-    icon: '🎬',
+    icon: 'Film',
     script: 'scripts/video-analyst.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '30 */8 * * *',
@@ -107,7 +107,7 @@ export const AGENT_DEFS: Record<string, {
   'daily-brief': {
     label: 'Daily Brief',
     description: 'Personalized AI content brief → Telegram DM + web notification',
-    icon: '📋',
+    icon: 'FileText',
     script: 'scripts/daily-brief.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '0 8 * * *',
@@ -116,7 +116,7 @@ export const AGENT_DEFS: Record<string, {
   'weekly-digest': {
     label: 'Weekly Digest',
     description: 'Weekly intelligence recap → Telegram DM (run Sundays)',
-    icon: '📰',
+    icon: 'Newspaper',
     script: 'scripts/weekly-digest.ts',
     defaultModel: 'google/gemini-2.5-flash-lite',
     defaultCron: '0 19 * * 0',
@@ -125,7 +125,7 @@ export const AGENT_DEFS: Record<string, {
   'source-quality': {
     label: 'Source Quality',
     description: 'Auto-adjusts source trustScore based on article relevance (EMA)',
-    icon: '📈',
+    icon: 'TrendingUp',
     script: 'scripts/source-quality.ts',
     args: ['--apply'],
     defaultModel: 'openai/gpt-4o-mini',
@@ -135,7 +135,7 @@ export const AGENT_DEFS: Record<string, {
   'interest-decay': {
     label: 'Interest Decay',
     description: 'Applies 10% score decay to interests idle for ≥14 days',
-    icon: '📉',
+    icon: 'TrendingDown',
     script: 'scripts/interest-decay.ts',
     args: ['--apply'],
     defaultModel: 'openai/gpt-4o-mini',
@@ -147,7 +147,7 @@ export const AGENT_DEFS: Record<string, {
   feedback: {
     label: 'Feedback',
     description: 'Processes Telegram callback signals, updates interest scores (event-driven)',
-    icon: '💬',
+    icon: 'MessageCircle',
     script: null,
     defaultModel: 'openai/gpt-4o-mini',
     defaultCron: null,
@@ -156,7 +156,7 @@ export const AGENT_DEFS: Record<string, {
   manager: {
     label: 'Manager',
     description: 'System health, budget monitoring and Telegram DM commands (event-driven)',
-    icon: '📊',
+    icon: 'BarChart2',
     script: 'scripts/health-check.ts',
     defaultModel: 'openai/gpt-4o-mini',
     defaultCron: null,

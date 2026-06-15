@@ -7,6 +7,7 @@ import { BottomNav } from '@/components/shell/BottomNav'
 export const metadata: Metadata = {
   title: 'Info-Sentry',
   description: 'Personal AI news intelligence system',
+  icons: { icon: '/favicon.svg' },
 }
 
 export const viewport: Viewport = {

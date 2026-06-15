@@ -112,7 +112,11 @@ export default async function Home() {
         }}>
           <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 60 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse-ring 2s infinite' }} />
+              {/* InfoSentry "i" mark — dot on top pulsates via pulse-ring keyframe */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse-ring 2s infinite' }} />
+                <div style={{ width: 4, height: 11, borderRadius: 2, backgroundColor: '#c7d2fe' }} />
+              </div>
               <span style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.02em', color: '#f0f0f0' }}>
                 Info<span style={{ color: '#6366f1' }}>Sentry</span>
               </span>
