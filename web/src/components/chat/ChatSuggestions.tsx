@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { Newspaper, TrendingUp, Sparkles, Globe } from 'lucide-react'
+import { InfoSentryLogo } from '@/components/shell/InfoSentryLogo'
 
 const suggestions = [
   {
@@ -42,19 +43,8 @@ export function ChatSuggestions({ onSelect }: ChatSuggestionsProps) {
         padding: '40px 24px',
       }}
     >
-      <div
-        style={{
-          width: '48px',
-          height: '48px',
-          borderRadius: '14px',
-          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: '16px',
-        }}
-      >
-        <Sparkles size={22} color="#fff" />
+      <div style={{ marginBottom: '16px' }}>
+        <InfoSentryLogo variant="badge" size={48} />
       </div>
       <h2
         style={{

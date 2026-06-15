@@ -74,11 +74,16 @@ function timeAgo(iso: string): string {
 }
 
 interface BudgetData { spentUsd: number; budgetUsd: number; percent: number }
+interface UserData { name: string | null; email: string }
 
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [budget, setBudget] = useState<BudgetData | null>(null)
+  const [user, setUser] = useState<UserData | null>(null)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const userBtnRef = useRef<HTMLButtonElement>(null)
   const [notifications, setNotifications] = useState<NotifItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -96,6 +101,7 @@ export function Sidebar() {
 
   useEffect(() => {
     fetch('/api/budget').then(r => r.json()).then(d => setBudget(d)).catch(() => {})
+    fetch('/api/auth/me').then(r => r.json()).then((d: { user?: UserData }) => { if (d.user) setUser(d.user) }).catch(() => {})
   }, [])
 
   const fetchNotifications = useCallback(() => {
@@ -150,6 +156,18 @@ export function Sidebar() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [notifOpen])
+
+  useEffect(() => {
+    if (!userMenuOpen) return
+    function handler(e: MouseEvent) {
+      if (
+        userBtnRef.current && !userBtnRef.current.contains(e.target as Node) &&
+        userMenuRef.current && !userMenuRef.current.contains(e.target as Node)
+      ) setUserMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [userMenuOpen])
 
   function markAllRead() {
     fetch('/api/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
@@ -257,22 +275,71 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Logout */}
-      {typeof window !== 'undefined' && document.cookie.includes('is_auth') && (
-        <div style={{ padding: '0 10px 4px' }}>
-          <button
-            onClick={() => {
-              void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/login' })
-            }}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: '13px' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ef4444'; (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(239,68,68,0.06)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#555'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
-          >
-            <LogOut size={16} />
-            Sign out
-          </button>
-        </div>
-      )}
+      {/* User menu */}
+      <div style={{ padding: '0 8px 8px', position: 'relative' }}>
+        <button ref={userBtnRef} onClick={() => setUserMenuOpen(o => !o)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '9px 12px', borderRadius: '8px',
+            background: userMenuOpen ? '#1a1a1a' : 'none',
+            border: 'none', cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={e => { if (!userMenuOpen) (e.currentTarget as HTMLElement).style.background = '#141414' }}
+          onMouseLeave={e => { if (!userMenuOpen) (e.currentTarget as HTMLElement).style.background = 'none' }}
+        >
+          {/* Avatar circle with initial */}
+          <div style={{
+            width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '11px', fontWeight: 700, color: '#fff',
+          }}>
+            {user?.name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?'}
+          </div>
+          <div className="sidebar-label" style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#d0d0d0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.name ?? 'Account'}
+            </div>
+            <div style={{ fontSize: '10px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.email ?? ''}
+            </div>
+          </div>
+        </button>
+
+        {/* Pop-up menu */}
+        {userMenuOpen && (
+          <div ref={userMenuRef} style={{
+            position: 'fixed', left: 'calc(var(--sidebar-w) + 4px)',
+            bottom: '12px', width: '200px',
+            backgroundColor: '#141414', border: '1px solid #2a2a2a',
+            borderRadius: '10px', boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+            zIndex: 200, overflow: 'hidden',
+          }}>
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f1f1f' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#e0e0e0', marginBottom: '2px' }}>{user?.name ?? 'User'}</div>
+              <div style={{ fontSize: '11px', color: '#555' }}>{user?.email}</div>
+            </div>
+            <button
+              onClick={() => {
+                setUserMenuOpen(false)
+                void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/login' })
+              }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '10px 14px', background: 'none', border: 'none',
+                cursor: 'pointer', color: '#ef4444', fontSize: '13px',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(239,68,68,0.08)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+            >
+              <LogOut size={14} />
+              Sign out
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Budget */}
       <div className="sidebar-budget" style={{ padding: '12px 20px 16px', borderTop: '1px solid #1a1a1a' }}>
