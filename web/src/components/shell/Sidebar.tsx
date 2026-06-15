@@ -323,7 +323,7 @@ export function Sidebar() {
             <button
               onClick={() => {
                 setUserMenuOpen(false)
-                void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/login' })
+                void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/' })
               }}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: '8px',

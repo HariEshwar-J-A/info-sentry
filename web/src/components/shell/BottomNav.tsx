@@ -85,7 +85,7 @@ export function BottomNav() {
           <button
             onClick={() => {
               void fetch('/api/auth/logout', { method: 'POST' })
-                .then(() => { window.location.href = '/login' })
+                .then(() => { window.location.href = '/' })
             }}
             style={{
               display: 'flex', alignItems: 'center', gap: '10px',
