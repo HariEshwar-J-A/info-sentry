@@ -38,7 +38,7 @@ export async function POST(
 
     try {
       const completion = await openrouter.chat.completions.create({
-        model: 'google/gemini-2.0-flash-001',
+        model: 'google/gemini-2.5-flash-lite',
         messages: [
           {
             role: 'user',

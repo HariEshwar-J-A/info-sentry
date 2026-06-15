@@ -4,7 +4,7 @@
  */
 
 /** Budget Scout default — valid on OpenRouter, cheap, strong for extraction/search helpers. */
-export const SCOUT_DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-001";
+export const SCOUT_DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash-lite";
 
 export function getQueryExpandModel(): string {
   const v = process.env["QUERY_EXPAND_MODEL"]?.trim();
