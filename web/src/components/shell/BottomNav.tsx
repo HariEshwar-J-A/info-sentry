@@ -6,18 +6,18 @@ import { usePathname } from 'next/navigation'
 import { Rss, GitBranch, Tag, Target, Database, MessageSquare, Sparkles, Settings, Menu, LogOut, Video } from 'lucide-react'
 
 const PRIMARY_NAV = [
-  { href: '/feed',        label: 'Feed',    icon: <Rss size={20} /> },
-  { href: '/github-feed', label: 'GitHub',  icon: <GitBranch size={20} /> },
-  { href: '/topics',      label: 'Topics',  icon: <Tag size={20} /> },
-  { href: '/predictions', label: 'Predict', icon: <Target size={20} /> },
+  { href: '/feed',        label: 'iFeeds',   icon: <Rss size={20} /> },
+  { href: '/predictions', label: 'iPredict', icon: <Target size={20} /> },
+  { href: '/github-feed', label: 'iGitHub',  icon: <GitBranch size={20} /> },
+  { href: '/chat',        label: 'iChat',    icon: <MessageSquare size={20} /> },
 ]
 
 const MORE_NAV = [
-  { href: '/video-feed', label: 'Videos',      icon: <Video size={20} /> },
-  { href: '/sources',    label: 'Sources',     icon: <Database size={20} /> },
-  { href: '/chat',       label: 'Chat',        icon: <MessageSquare size={20} /> },
-  { href: '/surprise',   label: 'Surprise',    icon: <Sparkles size={20} /> },
-  { href: '/settings',   label: 'Settings',    icon: <Settings size={20} /> },
+  { href: '/video-feed', label: 'iVideos',  icon: <Video size={20} /> },
+  { href: '/topics',     label: 'Topics',   icon: <Tag size={20} /> },
+  { href: '/surprise',   label: 'Surprise', icon: <Sparkles size={20} /> },
+  { href: '/sources',    label: 'Sources',  icon: <Database size={20} /> },
+  { href: '/settings',   label: 'Settings', icon: <Settings size={20} /> },
 ]
 
 export function BottomNav() {

@@ -1,7 +1,29 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Zap } from 'lucide-react'
+import {
+  Search, Brain, Target, ShieldCheck,
+  Star, Bot, Tv, Film,
+  FileText, Newspaper, TrendingUp, TrendingDown,
+  MessageCircle, BarChart2, Play,
+} from 'lucide-react'
+
+const AGENT_ICONS: Record<string, React.ReactNode> = {
+  Search:      <Search size={18} />,
+  Brain:       <Brain size={18} />,
+  Target:      <Target size={18} />,
+  ShieldCheck: <ShieldCheck size={18} />,
+  Star:        <Star size={18} />,
+  Bot:         <Bot size={18} />,
+  Tv:          <Tv size={18} />,
+  Film:        <Film size={18} />,
+  FileText:    <FileText size={18} />,
+  Newspaper:   <Newspaper size={18} />,
+  TrendingUp:  <TrendingUp size={18} />,
+  TrendingDown:<TrendingDown size={18} />,
+  MessageCircle: <MessageCircle size={18} />,
+  BarChart2:   <BarChart2 size={18} />,
+}
 import { TopBar } from '@/components/shell/TopBar'
 
 interface BudgetSettings {
@@ -329,7 +351,7 @@ export default function SettingsPage() {
           >
             {pipelineRunning
               ? <><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'pulse 1s infinite' }} /> Running…</>
-              : <><Zap size={14} /> Run Full Pipeline</>}
+              : <><Play size={14} /> Run Full Pipeline</>}
           </button>
         }
       />
@@ -441,8 +463,8 @@ export default function SettingsPage() {
                   <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
                     {/* Icon + running indicator */}
                     <div style={{ position: 'relative', flexShrink: 0 }}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: '#1a1a1a', border: '1px solid #2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>
-                        {agent.icon}
+                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: '#1a1a1a', border: '1px solid #2a2a2a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1' }}>
+                        {AGENT_ICONS[agent.icon] ?? <Search size={18} />}
                       </div>
                       <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: runColor, border: '2px solid #111', transition: 'background-color 0.3s' }} />
                     </div>
