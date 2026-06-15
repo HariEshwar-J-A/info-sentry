@@ -212,7 +212,7 @@ export default function GitHubFeedPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar
-        title="GitHub Feed"
+        title="iGitHub"
         subtitle="Trending repositories across your tracked topics"
         actions={<SourceTypeToggle active="github" />}
       />

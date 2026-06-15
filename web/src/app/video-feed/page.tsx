@@ -111,7 +111,7 @@ export default function VideoFeedPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar
-        title="Video Feed"
+        title="iVideos"
         subtitle={`${videos.length} videos`}
         actions={
           <button

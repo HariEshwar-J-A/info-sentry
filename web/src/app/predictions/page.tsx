@@ -176,7 +176,7 @@ export default function PredictionsPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
-      <TopBar title="Predictions" subtitle="Track, verify, and learn from AI predictions" />
+      <TopBar title="iPredictions" subtitle="Track, verify, and learn from AI predictions" />
 
       <div className="page-content">
         {/* Tab bar */}
