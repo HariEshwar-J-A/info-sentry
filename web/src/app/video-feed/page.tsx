@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, RefreshCw, Video } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Video, Search } from 'lucide-react'
 import { TopBar } from '@/components/shell/TopBar'
 import { VideoCard } from '@/components/video/VideoCard'
 
@@ -38,6 +38,13 @@ export default function VideoFeedPage() {
   const [loading, setLoading] = useState(true)
   const [showAddChannel, setShowAddChannel] = useState(false)
 
+  // Search + pagination state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
+
   // Add channel form state
   const [addUrl, setAddUrl] = useState('')
   const [resolvedInfo, setResolvedInfo] = useState<{ channelId: string; channelName: string; channelUrl: string } | null>(null)
@@ -45,22 +52,38 @@ export default function VideoFeedPage() {
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
 
-  const loadVideos = useCallback(async (channelId?: string) => {
+  // Debounce search query
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 400)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1) }, [selectedChannel, debouncedQuery])
+
+  const loadVideos = useCallback(async () => {
     setLoading(true)
     try {
-      const url = channelId ? `/api/video-feed?channelId=${channelId}` : '/api/video-feed'
+      const params = new URLSearchParams({ limit: '20', page: String(page) })
+      if (selectedChannel) params.set('channelId', selectedChannel)
+      if (debouncedQuery) params.set('q', debouncedQuery)
       const [videosRes, channelsRes] = await Promise.all([
-        fetch(url),
+        fetch(`/api/video-feed?${params}`),
         fetch('/api/channels'),
       ])
-      if (videosRes.ok) setVideos((await videosRes.json()) as VideoItem[])
+      if (videosRes.ok) {
+        const d = (await videosRes.json()) as { videos: VideoItem[]; total: number; pages: number }
+        setVideos(d.videos)
+        setTotal(d.total)
+        setTotalPages(d.pages)
+      }
       if (channelsRes.ok) setChannels((await channelsRes.json()) as Channel[])
     } catch { /* ignore */ } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedChannel, debouncedQuery, page])
 
-  useEffect(() => { void loadVideos(selectedChannel ?? undefined) }, [loadVideos, selectedChannel])
+  useEffect(() => { void loadVideos() }, [loadVideos])
 
   async function handleResolve() {
     if (!addUrl.trim()) return
@@ -112,7 +135,7 @@ export default function VideoFeedPage() {
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar
         title="iVideos"
-        subtitle={`${videos.length} videos`}
+        subtitle={`${total} videos${debouncedQuery ? ` · searching "${debouncedQuery}"` : ''}`}
         actions={
           <button
             onClick={() => setShowAddChannel(!showAddChannel)}
@@ -170,13 +193,51 @@ export default function VideoFeedPage() {
           </div>
         )}
 
+        {/* Search input */}
+        <div style={{ marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' }} />
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search videos, transcripts, channels…"
+              style={{
+                width: '100%',
+                background: '#111',
+                border: '1px solid #2a2a2a',
+                borderRadius: '8px',
+                color: '#f0f0f0',
+                fontSize: '13px',
+                padding: '8px 12px 8px 34px',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', color: '#555', cursor: 'pointer',
+                  fontSize: '14px', lineHeight: 1, padding: '0 2px',
+                }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {debouncedQuery && (
+            <span style={{ fontSize: '12px', color: '#555' }}>{total} result{total !== 1 ? 's' : ''}</span>
+          )}
+        </div>
+
         {/* Channel filter tabs */}
         {channels.length > 0 && (
           <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               onClick={() => setSelectedChannel(null)}
               style={{ padding: '5px 14px', borderRadius: '6px', border: `1px solid ${selectedChannel === null ? '#6366f1' : '#2a2a2a'}`, background: selectedChannel === null ? 'rgba(99,102,241,0.12)' : 'none', color: selectedChannel === null ? '#6366f1' : '#8a8a8a', cursor: 'pointer', fontSize: '12px', fontWeight: 500 }}>
-              All ({videos.length})
+              All ({total})
             </button>
             {channels.map(ch => (
               <div key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -197,7 +258,7 @@ export default function VideoFeedPage() {
               </div>
             ))}
             <button
-              onClick={() => void loadVideos(selectedChannel ?? undefined)}
+              onClick={() => void loadVideos()}
               style={{ marginLeft: 'auto', background: 'none', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#555', cursor: 'pointer', padding: '5px 8px', display: 'flex', alignItems: 'center' }}
               title="Reload"
             >
@@ -233,8 +294,12 @@ export default function VideoFeedPage() {
         {/* No videos */}
         {!loading && channels.length > 0 && videos.length === 0 && (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#555' }}>
-            <div style={{ fontSize: '14px', marginBottom: '8px' }}>No videos yet</div>
-            <div style={{ fontSize: '12px', color: '#444' }}>Run the YouTube scout to fetch latest videos from your channels</div>
+            <div style={{ fontSize: '14px', marginBottom: '8px' }}>
+              {debouncedQuery ? `No results for "${debouncedQuery}"` : 'No videos yet'}
+            </div>
+            <div style={{ fontSize: '12px', color: '#444' }}>
+              {debouncedQuery ? 'Try a different search term' : 'Run the YouTube scout to fetch latest videos from your channels'}
+            </div>
           </div>
         )}
 
@@ -246,8 +311,40 @@ export default function VideoFeedPage() {
                 key={video.id}
                 video={video}
                 onViewed={(id) => setVideos(prev => prev.map(v => v.id === id ? { ...v, viewedAt: new Date().toISOString() } : v))}
+                onTranscriptGenerated={(id, transcript) =>
+                  setVideos(prev => prev.map(v => v.id === id ? { ...v, transcript } : v))
+                }
               />
             ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '32px', paddingBottom: '32px' }}>
+            <button
+              onClick={() => setPage(p => p - 1)}
+              disabled={page === 1}
+              style={{
+                padding: '7px 16px', borderRadius: '8px', border: '1px solid #2a2a2a',
+                background: 'none', color: page === 1 ? '#333' : '#a5b4fc',
+                cursor: page === 1 ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
+              }}
+            >
+              ← Prev
+            </button>
+            <span style={{ fontSize: '13px', color: '#8a8a8a' }}>Page {page} of {totalPages}</span>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={page === totalPages}
+              style={{
+                padding: '7px 16px', borderRadius: '8px', border: '1px solid #2a2a2a',
+                background: 'none', color: page === totalPages ? '#333' : '#a5b4fc',
+                cursor: page === totalPages ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
+              }}
+            >
+              Next →
+            </button>
           </div>
         )}
       </div>
