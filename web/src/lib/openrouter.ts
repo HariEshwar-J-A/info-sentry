@@ -9,4 +9,4 @@ export const openrouter = new OpenAI({
   },
 })
 
-export const CHAT_MODEL = 'google/gemini-2.0-flash-001'
+export const CHAT_MODEL = 'google/gemini-2.5-flash-lite'
