@@ -26,7 +26,7 @@ export default async function FeedPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar
-        title="Feed"
+        title="iFeeds"
         subtitle={`${articles.length} articles`}
         actions={<SourceTypeToggle active="news" />}
       />

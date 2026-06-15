@@ -32,7 +32,7 @@ export const ChatBodySchema = z.object({
   history:   z
     .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string() }))
     .default([]),
-  sessionId: z.string().cuid().optional(),
+  sessionId: z.string().cuid().nullish(),
 })
 
 export const InterestCreateSchema = z.object({

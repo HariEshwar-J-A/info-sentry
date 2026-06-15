@@ -77,7 +77,7 @@ export default function ChatPage() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history, sessionId }),
+        body: JSON.stringify({ message: text, history, ...(sessionId ? { sessionId } : {}) }),
       })
 
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
@@ -163,7 +163,7 @@ export default function ChatPage() {
       {/* Main chat area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <TopBar
-          title="Chat"
+          title="iChat"
           subtitle={sessionId ? 'Session active · responses saved' : 'AI assistant with live news context'}
           actions={
             <div style={{ display: 'flex', gap: '6px' }}>
