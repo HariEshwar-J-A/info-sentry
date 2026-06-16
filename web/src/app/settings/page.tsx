@@ -7,6 +7,7 @@ import {
   FileText, Newspaper, TrendingUp, TrendingDown,
   MessageCircle, BarChart2, Play,
 } from 'lucide-react'
+import { LoadingState } from '@/components/ui/LoadingState'
 
 const AGENT_ICONS: Record<string, React.ReactNode> = {
   Search:      <Search size={18} />,
@@ -132,6 +133,57 @@ function describeCron(expr: string): string {
     return `Mondays at ${!isNaN(h) ? h : hour}:${min.padStart(2, '0')}${!isNaN(h) && h < 12 ? 'am' : 'pm'}`
   }
   return expr
+}
+
+function BetaFeatures() {
+  const [predictions, setPredictions] = useState(false)
+
+  useEffect(() => {
+    setPredictions(localStorage.getItem('infosentry_beta_predictions') === 'true')
+  }, [])
+
+  function toggle(key: string, value: boolean, setter: (v: boolean) => void) {
+    setter(value)
+    localStorage.setItem(key, String(value))
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: '11px', color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>
+        Beta Features
+      </div>
+      <div style={{ backgroundColor: '#111', border: '1px solid #1f1f1f', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 500, color: '#e0e0e0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              iPredictions
+              <span style={{ fontSize: '9px', color: '#6366f1', background: 'rgba(99,102,241,0.15)', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>BETA</span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#555', marginTop: '3px' }}>
+              AI-generated forecasts with confidence scores and evidence tracking. Experimental.
+            </div>
+          </div>
+          <button
+            onClick={() => toggle('infosentry_beta_predictions', !predictions, setPredictions)}
+            style={{
+              flexShrink: 0, width: '40px', height: '22px', borderRadius: '11px',
+              background: predictions ? '#6366f1' : '#2a2a2a',
+              border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: '3px', left: predictions ? '21px' : '3px',
+              width: '16px', height: '16px', borderRadius: '50%',
+              background: '#fff', transition: 'left 0.2s',
+            }} />
+          </button>
+        </div>
+        <div style={{ fontSize: '11px', color: '#444', marginTop: '12px' }}>
+          Changes take effect after page reload. Beta features may be unstable.
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function SettingsPage() {
@@ -439,9 +491,12 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Beta Features */}
+        <BetaFeatures />
+
         {/* Agent cards grouped by pipeline */}
         {loading ? (
-          <div style={{ color: '#555', fontSize: '14px', padding: '40px 0' }}>Loading agents…</div>
+          <LoadingState label="Loading agents…" />
         ) : (
           Object.entries(GROUP_LABELS).map(([groupKey, groupLabel]) => {
             const groupAgents = agents.filter(a => a.group === groupKey)

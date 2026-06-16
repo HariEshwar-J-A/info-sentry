@@ -36,6 +36,22 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
   },
+  async redirects() {
+    return [
+      // Legacy app routes → new /iX/* paths (permanent 308)
+      { source: '/feed',                destination: '/iFeeds',                permanent: true },
+      { source: '/topics',              destination: '/iFeeds/topics',         permanent: true },
+      { source: '/sources',             destination: '/iFeeds/sources',        permanent: true },
+      { source: '/predictions',         destination: '/iFeeds/predictions',    permanent: true },
+      { source: '/article/:id',         destination: '/iFeeds/article/:id',    permanent: true },
+      { source: '/github-feed',         destination: '/iGitHub',               permanent: true },
+      { source: '/github-feed/:id',     destination: '/iGitHub/:id',           permanent: true },
+      { source: '/video-feed',          destination: '/iVideos',               permanent: true },
+      { source: '/video-feed/:id',      destination: '/iVideos/:id',           permanent: true },
+      { source: '/chat',                destination: '/iChat',                 permanent: true },
+      { source: '/surprise',            destination: '/iSurprise',             permanent: true },
+    ]
+  },
 }
 
 export default nextConfig

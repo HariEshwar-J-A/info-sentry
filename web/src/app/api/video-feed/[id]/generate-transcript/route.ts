@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/user'
+import { checkBudgetBeforeProductCall } from '@/lib/budget-guard'
 
 export const maxDuration = 300
 
@@ -17,6 +18,9 @@ export async function POST(
   const auth = await requireUserId()
   if (auth instanceof Response) return auth
   const { userId } = auth
+
+  const budgetBlock = await checkBudgetBeforeProductCall(userId, 'iVideos')
+  if (budgetBlock) return budgetBlock
 
   const { id } = await params
 

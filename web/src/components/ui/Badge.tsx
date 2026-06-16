@@ -64,8 +64,23 @@ export function Badge({
     userSelect: 'none',
   }
 
+  if (onClick) {
+    return (
+      <span
+        style={style}
+        onClick={onClick}
+        className={className}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick() }}
+      >
+        {children}
+      </span>
+    )
+  }
+
   return (
-    <span style={style} onClick={onClick} className={className}>
+    <span style={style} className={className}>
       {children}
     </span>
   )
