@@ -63,7 +63,7 @@ export default function RunsPage() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a' }}>
       <TopBar title="Pipeline Runs" subtitle={`${runs.length} runs`} />
-      <div className="page-content" style={{ display: 'grid', gap: '14px', gridTemplateColumns: 'minmax(380px, 1fr) minmax(420px, 1.2fr)' }}>
+      <div className="page-content settings-grid" style={{ gap: '14px' }}>
         <div style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: '12px', overflow: 'hidden' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid #1a1a1a', display: 'flex', gap: '8px' }}>
             <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value as 'all' | 'NEWS' | 'GITHUB')} style={{ background: '#0d0d0d', border: '1px solid #2a2a2a', color: '#bbb', borderRadius: '6px', padding: '4px 8px' }}>

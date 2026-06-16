@@ -174,15 +174,16 @@ export function FeedClient({ articles: initialArticles, userTopics }: FeedClient
     <div style={{ padding: '24px 32px' }}>
       {/* New articles banner */}
       {newCount > 0 && (
-        <div
+        <button
+          type="button"
           onClick={() => void loadAll()}
-          style={{ marginBottom: '16px', padding: '10px 16px', backgroundColor: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          style={{ marginBottom: '16px', padding: '10px 16px', backgroundColor: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'rgba(99,102,241,0.12)', fontFamily: 'inherit' }}
         >
           <span style={{ fontSize: '13px', color: '#a5b4fc' }}>
             ✦ {newCount} new article{newCount !== 1 ? 's' : ''} available
           </span>
           <span style={{ fontSize: '12px', color: '#6366f1', fontWeight: 600 }}>Refresh →</span>
-        </div>
+        </button>
       )}
 
       {/* Topic discovery suggestions */}

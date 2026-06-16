@@ -59,6 +59,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <div
+      role="group"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{

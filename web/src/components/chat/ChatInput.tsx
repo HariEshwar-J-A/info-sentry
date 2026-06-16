@@ -51,6 +51,7 @@ export function ChatInput({
       }}
     >
       <div
+        role="group"
         style={{
           display: 'flex',
           gap: '10px',

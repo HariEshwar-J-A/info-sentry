@@ -24,6 +24,10 @@ const startOfMonth = () => {
  * Returns a 429 Response if the monthly cap (global or per-user) is exceeded.
  */
 export async function checkBudgetBeforeChat(userId: string): Promise<Response | null> {
+  return checkBudgetBeforeProductCall(userId, 'iChat')
+}
+
+export async function checkBudgetBeforeProductCall(userId: string, product: string): Promise<Response | null> {
   try {
     const settings = await getSettings()
     const since = startOfMonth()
@@ -57,7 +61,12 @@ export async function checkBudgetBeforeChat(userId: string): Promise<Response | 
     const spent = agg._sum.totalCostUsd ?? 0
     if (spent >= cap) {
       return Response.json(
-        { error: `Your monthly AI budget ($${cap.toFixed(2)}) is reached.` },
+        {
+          error: `Your $${cap.toFixed(2)}/mo free intelligence budget is used up. Paid plans for ${product} are coming soon — join the waitlist at /sentry/waitlist.`,
+          code: 'BUDGET_EXCEEDED',
+          spentUsd: spent,
+          capUsd: cap,
+        },
         { status: 429 }
       )
     }

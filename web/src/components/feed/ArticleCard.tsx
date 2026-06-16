@@ -75,6 +75,7 @@ export function ArticleCard({ article, onFeedback, onBookmark, userTopics }: Art
 
   return (
     <div
+      role="article"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{

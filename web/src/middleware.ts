@@ -5,7 +5,7 @@ const SESSION_DAYS   = 30
 const USER_ID_HEADER = 'x-user-id'
 
 // Paths that bypass auth entirely
-const PUBLIC_PREFIXES = ['/login', '/api/auth']
+const PUBLIC_PREFIXES = ['/login', '/api/auth', '/sentry']
 
 export type VerifyTokenResult =
   | { valid: true; userId: string }

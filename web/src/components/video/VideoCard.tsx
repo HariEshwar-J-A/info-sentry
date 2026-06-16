@@ -18,24 +18,6 @@ interface VideoItemData {
   channel: { id: string; channelName: string; platform: string }
 }
 
-// Parse "MM:SS" or "H:MM:SS" → decimal minutes; returns null if unknown
-function durationMinutes(d: string | null): number | null {
-  if (!d) return null
-  const p = d.split(':').map(Number)
-  if (p.some(isNaN)) return null
-  if (p.length === 2) return p[0] + p[1] / 60           // MM:SS
-  if (p.length === 3) return p[0] * 60 + p[1] + p[2] / 60  // H:MM:SS
-  return null
-}
-
-// Groq whisper-large-v3-turbo: $0.04 / hour = $0.000667 / min
-function estimateWhisperCost(d: string | null): string | null {
-  const mins = durationMinutes(d)
-  if (mins === null) return null
-  const usd = mins * (0.04 / 60)
-  return usd < 0.01 ? '< $0.01' : `~$${usd.toFixed(2)}`
-}
-
 function timeAgo(iso: string | null): string {
   if (!iso) return '—'
   const diff = Date.now() - new Date(iso).getTime()
@@ -47,36 +29,17 @@ function timeAgo(iso: string | null): string {
   return 'just now'
 }
 
-function LoadingI({ label = 'loading' }: { label?: string }) {
-  const iIdx = label.indexOf('i')
-  const pre = iIdx === -1 ? label : label.slice(0, iIdx)
-  const post = iIdx === -1 ? '' : label.slice(iIdx + 1)
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '1px', color: '#6366f1', fontSize: '12px', fontWeight: 500 }}>
-      {pre}
-      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '1px', margin: '0 1px', position: 'relative', top: '-1px' }}>
-        <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#6366f1', animation: 'logo-dot-pulse 1s ease-in-out infinite', display: 'block' }} />
-        <span style={{ width: '3px', height: '8px', borderRadius: '2px', backgroundColor: '#6366f1', display: 'block' }} />
-      </span>
-      {post}
-    </span>
-  )
-}
 
 export function VideoCard({
   video,
   onViewed,
-  onTranscriptGenerated,
 }: {
   video: VideoItemData
   onViewed?: (id: string) => void
-  onTranscriptGenerated?: (id: string, transcript: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [genError, setGenError] = useState('')
-  const [localTranscript, setLocalTranscript] = useState<string | null>(video.transcript)
+  const [localTranscript] = useState<string | null>(video.transcript)
 
   const isNew = !video.viewedAt
 
@@ -84,26 +47,6 @@ export function VideoCard({
     if (isNew && onViewed) {
       onViewed(video.id)
       fetch(`/api/video-feed/${video.id}/viewed`, { method: 'POST' }).catch(() => {})
-    }
-  }
-
-  async function handleGenerate() {
-    setGenerating(true)
-    setGenError('')
-    try {
-      const res = await fetch(`/api/video-feed/${video.id}/generate-transcript`, { method: 'POST' })
-      const data = (await res.json()) as { transcript?: string; error?: string }
-      if (!res.ok || !data.transcript) {
-        setGenError(data.error ?? 'Failed to generate transcript')
-        return
-      }
-      setLocalTranscript(data.transcript)
-      setShowTranscript(true)
-      if (onTranscriptGenerated) onTranscriptGenerated(video.id, data.transcript)
-    } catch {
-      setGenError('Network error')
-    } finally {
-      setGenerating(false)
     }
   }
 
@@ -241,32 +184,7 @@ export function VideoCard({
                 {showTranscript ? 'Hide' : 'Transcript'}
               </button>
             ) : (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                <button
-                  onClick={() => void handleGenerate()}
-                  disabled={generating}
-                  style={{
-                    fontSize: '11px',
-                    color: generating ? '#6366f1' : '#a5b4fc',
-                    background: 'rgba(99,102,241,0.08)',
-                    border: '1px solid rgba(99,102,241,0.2)',
-                    borderRadius: '4px',
-                    cursor: generating ? 'default' : 'pointer',
-                    padding: '2px 8px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    opacity: generating ? 0.8 : 1,
-                  }}
-                >
-                  {generating ? <LoadingI label="Generating" /> : '⚡ Generate Transcript'}
-                </button>
-                {!generating && estimateWhisperCost(video.duration) && (
-                  <span style={{ fontSize: '10px', color: '#444', whiteSpace: 'nowrap' }}>
-                    {estimateWhisperCost(video.duration)}
-                  </span>
-                )}
-              </div>
+              <span style={{ fontSize: '11px', color: '#444', fontStyle: 'italic' }}>No transcript</span>
             )}
           </div>
           <a
@@ -279,13 +197,6 @@ export function VideoCard({
             Watch <ExternalLink size={11} />
           </a>
         </div>
-
-        {/* Gen error */}
-        {genError && (
-          <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '2px' }}>
-            {genError}
-          </div>
-        )}
 
         {/* Transcript accordion */}
         {showTranscript && localTranscript && (

@@ -1,0 +1,21 @@
+{
+  "defaults": {
+    "standard": "WCAG2AA",
+    "timeout": 60000,
+    "wait": 2000,
+    "chromeLaunchConfig": {
+      "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+    }
+  },
+  "urls": [
+    "http://localhost:3001/sentry",
+    "http://localhost:3001/sentry/iFeeds",
+    "http://localhost:3001/sentry/iGitHub",
+    "http://localhost:3001/sentry/iVideos",
+    "http://localhost:3001/sentry/iChat",
+    "http://localhost:3001/sentry/iSurprise",
+    "http://localhost:3001/sentry/pricing",
+    "http://localhost:3001/sentry/manifesto",
+    "http://localhost:3001/login"
+  ]
+}

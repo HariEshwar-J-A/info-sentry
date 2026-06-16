@@ -82,11 +82,12 @@ export async function GET(req: Request) {
       isAdmin,
     },
     create: {
-      googleSub: user.id,
-      email:     user.email,
-      name:      user.name,
-      picture:   user.picture,
+      googleSub:     user.id,
+      email:         user.email,
+      name:          user.name,
+      picture:       user.picture,
       isAdmin,
+      monthlyCapUsd: 1.00,
     },
   })
 

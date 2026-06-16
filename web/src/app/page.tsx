@@ -10,7 +10,7 @@ import {
 
 export default async function Home() {
   const userId = await getSessionUserId()
-  if (userId) redirect('/feed')
+  if (userId) redirect('/iFeeds')
 
   return (
     <>

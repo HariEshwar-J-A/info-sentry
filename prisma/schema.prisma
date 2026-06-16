@@ -587,3 +587,26 @@ enum VideoPlatform {
   INSTAGRAM
   PODCAST
 }
+
+// ─── Per-product user settings ───────────────────────────────
+model UserSettings {
+  id        String   @id @default(cuid())
+  userId    String
+  product   String   // "global" | "iFeeds" | "iGitHub" | "iVideos" | "iChat" | "iSurprise"
+  data      Json     @default("{}")
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, product])
+  @@index([userId])
+}
+
+// ─── Waitlist (pre-Stripe) ───────────────────────────────────
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String
+  products  String[] // e.g. ["iFeeds", "iChat"]
+  createdAt DateTime @default(now())
+
+  @@unique([email])
+  @@index([createdAt])
+}
