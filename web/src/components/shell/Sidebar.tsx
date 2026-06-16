@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Rss, GitBranch, MessageSquare, Tag, Activity, Database, Target,
-  Sparkles, Settings, Bell, LogOut, Newspaper, Zap, Cog, Video,
+  Sparkles, Settings, Bell, LogOut, Newspaper, Cog, Video, ChevronDown,
 } from 'lucide-react'
+import { InfoSentryLogo } from './InfoSentryLogo'
+import { UsageMeter } from './UsageMeter'
 
 // ─── Notification Sound ────────────────────────────────────
 
@@ -34,17 +36,18 @@ function playNotificationSound(count: number) {
 
 interface NavItem { href: string; label: string; icon: React.ReactNode }
 
-const NAV: NavItem[] = [
-  { href: '/feed',        label: 'Feed',        icon: <Rss size={18} /> },
-  { href: '/github-feed', label: 'GitHub Feed',  icon: <GitBranch size={18} /> },
-  { href: '/video-feed',  label: 'Video Feed',   icon: <Video size={18} /> },
-  { href: '/chat',        label: 'Chat',         icon: <MessageSquare size={18} /> },
-  { href: '/topics',      label: 'Topics',       icon: <Tag size={18} /> },
-  { href: '/runs',        label: 'Runs',         icon: <Activity size={18} /> },
-  { href: '/sources',     label: 'Sources',      icon: <Database size={18} /> },
-  { href: '/predictions', label: 'Predictions',  icon: <Target size={18} /> },
-  { href: '/surprise',    label: 'Surprise Me',  icon: <Sparkles size={18} /> },
-  { href: '/settings',    label: 'Settings',     icon: <Settings size={18} /> },
+const PRIMARY_NAV: NavItem[] = [
+  { href: '/iFeeds',   label: 'iFeeds',    icon: <Rss size={18} /> },
+  { href: '/iGitHub',  label: 'iGitHub',   icon: <GitBranch size={18} /> },
+  { href: '/iVideos',  label: 'iVideos',   icon: <Video size={18} /> },
+  { href: '/iChat',    label: 'iChat',     icon: <MessageSquare size={18} /> },
+  { href: '/iSurprise', label: 'iSurprise', icon: <Sparkles size={18} /> },
+]
+
+const MANAGE_NAV: NavItem[] = [
+  { href: '/iFeeds/topics',  label: 'Topics',  icon: <Tag size={18} /> },
+  { href: '/iFeeds/sources', label: 'Sources', icon: <Database size={18} /> },
+  { href: '/runs',           label: 'Runs',    icon: <Activity size={18} /> },
 ]
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
@@ -72,12 +75,17 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 60_000)}m ago`
 }
 
-interface BudgetData { spentUsd: number; budgetUsd: number; percent: number }
+interface UserData { name: string | null; email: string }
 
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const [budget, setBudget] = useState<BudgetData | null>(null)
+  const [user, setUser] = useState<UserData | null>(null)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [manageOpen, setManageOpen] = useState(false)
+  const [betaPredictions, setBetaPredictions] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const userBtnRef = useRef<HTMLButtonElement>(null)
   const [notifications, setNotifications] = useState<NotifItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -94,7 +102,13 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
-    fetch('/api/budget').then(r => r.json()).then(d => setBudget(d)).catch(() => {})
+    fetch('/api/auth/me').then(r => r.json()).then((d: { user?: UserData }) => { if (d.user) setUser(d.user) }).catch(() => {})
+    setBetaPredictions(localStorage.getItem('infosentry_beta_predictions') === 'true')
+    // auto-open manage group if on a manage page
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname
+      if (['/topics', '/sources', '/runs'].some(r => p === r || p.startsWith(r + '/'))) setManageOpen(true)
+    }
   }, [])
 
   const fetchNotifications = useCallback(() => {
@@ -150,6 +164,18 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [notifOpen])
 
+  useEffect(() => {
+    if (!userMenuOpen) return
+    function handler(e: MouseEvent) {
+      if (
+        userBtnRef.current && !userBtnRef.current.contains(e.target as Node) &&
+        userMenuRef.current && !userMenuRef.current.contains(e.target as Node)
+      ) setUserMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [userMenuOpen])
+
   function markAllRead() {
     fetch('/api/notifications/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
       .then(() => { setUnreadCount(0); setNotifications(p => p.map(n => ({ ...n, readAt: new Date().toISOString() }))) })
@@ -173,9 +199,7 @@ export function Sidebar() {
       {/* Logo */}
       <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid #1a1a1a' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
-          <div style={{ width: '28px', height: '28px', flexShrink: 0, borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Zap size={14} color="#fff" strokeWidth={2.5} />
-          </div>
+          <InfoSentryLogo variant="badge" size={28} />
           <div className="sidebar-logo-text">
             <div style={{ fontSize: '14px', fontWeight: 600, color: '#f0f0f0', letterSpacing: '-0.02em' }}>Info-Sentry</div>
             <div style={{ fontSize: '11px', color: '#8a8a8a' }}>AI News Intelligence</div>
@@ -185,11 +209,12 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '12px 8px', overflow: 'auto' }}>
-        {NAV.map((item) => {
+        {/* Primary nav items */}
+        {PRIMARY_NAV.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
           return (
             <Link key={item.href} href={item.href} title={item.label}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', marginBottom: '2px', fontSize: '14px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s', justifyContent: 'flex-start' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', marginBottom: '2px', fontSize: '14px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s' }}
               onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#d0d0d0'; (e.currentTarget as HTMLElement).style.backgroundColor = '#141414' } }}
               onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#8a8a8a'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' } }}
             >
@@ -198,6 +223,63 @@ export function Sidebar() {
             </Link>
           )
         })}
+
+        {/* Beta: iPredictions */}
+        {betaPredictions && (() => {
+          const isActive = pathname === '/predictions' || pathname.startsWith('/predictions/')
+          return (
+            <Link href="/predictions" title="iPredictions"
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', marginBottom: '2px', fontSize: '14px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s' }}
+              onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#d0d0d0'; (e.currentTarget as HTMLElement).style.backgroundColor = '#141414' } }}
+              onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#8a8a8a'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' } }}
+            >
+              <span style={{ color: isActive ? '#6366f1' : 'currentColor', opacity: isActive ? 1 : 0.7, flexShrink: 0 }}><Target size={18} /></span>
+              <span className="sidebar-label">iPredictions <span style={{ fontSize: '9px', color: '#6366f1', background: 'rgba(99,102,241,0.15)', borderRadius: '3px', padding: '0 4px', marginLeft: '2px' }}>β</span></span>
+            </Link>
+          )
+        })()}
+
+        {/* Manage group — Topics / Sources / Runs */}
+        <div style={{ marginTop: '8px' }}>
+          <button
+            onClick={() => setManageOpen(o => !o)}
+            title="Manage"
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 12px', borderRadius: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', transition: 'all 0.15s' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#888')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+          >
+            <span className="sidebar-label" style={{ flex: 1, textAlign: 'left' }}>Manage</span>
+            <ChevronDown size={13} style={{ transform: manageOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+          </button>
+          {manageOpen && MANAGE_NAV.map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+            return (
+              <Link key={item.href} href={item.href} title={item.label}
+                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px 8px 20px', borderRadius: '8px', marginBottom: '2px', fontSize: '13px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s' }}
+                onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#d0d0d0'; (e.currentTarget as HTMLElement).style.backgroundColor = '#141414' } }}
+                onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#8a8a8a'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' } }}
+              >
+                <span style={{ color: isActive ? '#6366f1' : 'currentColor', opacity: isActive ? 1 : 0.7, flexShrink: 0 }}>{item.icon}</span>
+                <span className="sidebar-label">{item.label}</span>
+              </Link>
+            )
+          })}
+        </div>
+
+        {/* Settings always visible at bottom of nav */}
+        {(() => {
+          const isActive = pathname === '/settings'
+          return (
+            <Link href="/settings" title="Settings"
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', marginTop: '4px', fontSize: '14px', fontWeight: isActive ? 500 : 400, color: isActive ? '#f0f0f0' : '#8a8a8a', backgroundColor: isActive ? '#1a1a1a' : 'transparent', textDecoration: 'none', transition: 'all 0.15s' }}
+              onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#d0d0d0'; (e.currentTarget as HTMLElement).style.backgroundColor = '#141414' } }}
+              onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.color = '#8a8a8a'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' } }}
+            >
+              <span style={{ color: isActive ? '#6366f1' : 'currentColor', opacity: isActive ? 1 : 0.7, flexShrink: 0 }}><Settings size={18} /></span>
+              <span className="sidebar-label">Settings</span>
+            </Link>
+          )
+        })()}
       </nav>
 
       {/* Notification Bell */}
@@ -238,6 +320,9 @@ export function Sidebar() {
                 </div>
               ) : notifications.map((n) => (
                 <div key={n.id} onClick={() => handleNotifClick(n)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleNotifClick(n) }}
                   style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #1a1a1a', backgroundColor: !n.readAt ? 'rgba(99,102,241,0.06)' : 'transparent', transition: 'background 0.15s' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.backgroundColor = !n.readAt ? 'rgba(99,102,241,0.1)' : '#1a1a1a'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.backgroundColor = !n.readAt ? 'rgba(99,102,241,0.06)' : 'transparent'}
@@ -258,42 +343,75 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Logout */}
-      {typeof window !== 'undefined' && document.cookie.includes('is_auth') && (
-        <div style={{ padding: '0 10px 4px' }}>
-          <button
-            onClick={() => {
-              void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/login' })
-            }}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: '13px' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#ef4444'; (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(239,68,68,0.06)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#555'; (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
-          >
-            <LogOut size={16} />
-            Sign out
-          </button>
-        </div>
-      )}
-
-      {/* Budget */}
-      <div className="sidebar-budget" style={{ padding: '12px 20px 16px', borderTop: '1px solid #1a1a1a' }}>
-        {budget ? (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <span style={{ fontSize: '11px', color: '#8a8a8a' }}>Monthly Budget</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: budget.percent > 80 ? '#ef4444' : budget.percent > 60 ? '#eab308' : '#22c55e', animation: 'pulse-dot 2s ease-in-out infinite' }} />
-                <span style={{ fontSize: '11px', color: budget.percent > 80 ? '#ef4444' : budget.percent > 60 ? '#eab308' : '#8a8a8a' }}>{Math.round(budget.percent)}%</span>
-              </div>
-            </div>
-            <div style={{ width: '100%', height: '3px', backgroundColor: '#1f1f1f', borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: `${budget.percent}%`, height: '100%', backgroundColor: budget.percent > 80 ? '#ef4444' : budget.percent > 60 ? '#eab308' : '#6366f1', borderRadius: '3px', transition: 'width 0.3s' }} />
-            </div>
-            <div style={{ fontSize: '10px', color: '#555', marginTop: '4px' }}>${budget.spentUsd.toFixed(2)} / ${budget.budgetUsd.toFixed(2)} USD</div>
+      {/* User menu */}
+      <div style={{ padding: '0 8px 8px', position: 'relative' }}>
+        <button ref={userBtnRef} onClick={() => setUserMenuOpen(o => !o)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '9px 12px', borderRadius: '8px',
+            background: userMenuOpen ? '#1a1a1a' : 'none',
+            border: 'none', cursor: 'pointer',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={e => { if (!userMenuOpen) (e.currentTarget as HTMLElement).style.background = '#141414' }}
+          onMouseLeave={e => { if (!userMenuOpen) (e.currentTarget as HTMLElement).style.background = 'none' }}
+        >
+          {/* Avatar circle with initial */}
+          <div style={{
+            width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '11px', fontWeight: 700, color: '#fff',
+          }}>
+            {user?.name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? '?'}
           </div>
-        ) : (
-          <div style={{ height: '38px', backgroundColor: '#151515', borderRadius: '6px' }} />
+          <div className="sidebar-label" style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#d0d0d0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.name ?? 'Account'}
+            </div>
+            <div style={{ fontSize: '10px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.email ?? ''}
+            </div>
+          </div>
+        </button>
+
+        {/* Pop-up menu */}
+        {userMenuOpen && (
+          <div ref={userMenuRef} style={{
+            position: 'fixed', left: 'calc(var(--sidebar-w) + 4px)',
+            bottom: '12px', width: '200px',
+            backgroundColor: '#141414', border: '1px solid #2a2a2a',
+            borderRadius: '10px', boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+            zIndex: 200, overflow: 'hidden',
+          }}>
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f1f1f' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#e0e0e0', marginBottom: '2px' }}>{user?.name ?? 'User'}</div>
+              <div style={{ fontSize: '11px', color: '#555' }}>{user?.email}</div>
+            </div>
+            <button
+              onClick={() => {
+                setUserMenuOpen(false)
+                void fetch('/api/auth/logout', { method: 'POST' }).then(() => { window.location.href = '/' })
+              }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '10px 14px', background: 'none', border: 'none',
+                cursor: 'pointer', color: '#ef4444', fontSize: '13px',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(239,68,68,0.08)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent' }}
+            >
+              <LogOut size={14} />
+              Sign out
+            </button>
+          </div>
         )}
+      </div>
+
+      {/* Usage meter */}
+      <div className="sidebar-budget">
+        <UsageMeter />
       </div>
     </aside>
   )

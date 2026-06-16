@@ -79,6 +79,9 @@ export function RepoCard({ repo, onViewed }: { repo: GitHubRepoData; onViewed?: 
         flexDirection: 'column',
       }}
       onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
     >
       {/* Header */}
       <div style={{ padding: '16px 18px 12px' }}>

@@ -9,11 +9,11 @@ const basePath = process.env.BASE_PATH ?? ''
 // supports nonce injection without patching _document.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' blob: data: https:",
-  "connect-src 'self' https://oauth2.googleapis.com https://accounts.google.com",
-  "font-src 'self'",
+  "connect-src 'self' https://oauth2.googleapis.com https://accounts.google.com https://cloudflareinsights.com",
+  "font-src 'self' https://fonts.gstatic.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -35,6 +35,22 @@ const nextConfig: NextConfig = {
   ...(basePath ? { basePath, assetPrefix: basePath } : {}),
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
+  },
+  async redirects() {
+    return [
+      // Legacy app routes → new /iX/* paths (permanent 308)
+      { source: '/feed',                destination: '/iFeeds',                permanent: true },
+      { source: '/topics',              destination: '/iFeeds/topics',         permanent: true },
+      { source: '/sources',             destination: '/iFeeds/sources',        permanent: true },
+      { source: '/predictions',         destination: '/iFeeds/predictions',    permanent: true },
+      { source: '/article/:id',         destination: '/iFeeds/article/:id',    permanent: true },
+      { source: '/github-feed',         destination: '/iGitHub',               permanent: true },
+      { source: '/github-feed/:id',     destination: '/iGitHub/:id',           permanent: true },
+      { source: '/video-feed',          destination: '/iVideos',               permanent: true },
+      { source: '/video-feed/:id',      destination: '/iVideos/:id',           permanent: true },
+      { source: '/chat',                destination: '/iChat',                 permanent: true },
+      { source: '/surprise',            destination: '/iSurprise',             permanent: true },
+    ]
   },
 }
 

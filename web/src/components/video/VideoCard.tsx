@@ -29,9 +29,18 @@ function timeAgo(iso: string | null): string {
   return 'just now'
 }
 
-export function VideoCard({ video, onViewed }: { video: VideoItemData; onViewed?: (id: string) => void }) {
+
+export function VideoCard({
+  video,
+  onViewed,
+}: {
+  video: VideoItemData
+  onViewed?: (id: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
+  const [localTranscript] = useState<string | null>(video.transcript)
+
   const isNew = !video.viewedAt
 
   function handleClick() {
@@ -154,26 +163,28 @@ export function VideoCard({ video, onViewed }: { video: VideoItemData; onViewed?
 
         {!video.aiSummary && !video.description && (
           <p style={{ fontSize: '12px', color: '#444', margin: 0, fontStyle: 'italic' }}>
-            {video.transcript ? 'Summary pending — run video-analyst.' : 'No summary yet — transcript unavailable.'}
+            {localTranscript ? 'Summary pending — run video-analyst.' : 'No summary yet — transcript unavailable.'}
           </p>
         )}
 
         {/* Footer */}
         <div style={{ marginTop: 'auto', paddingTop: '8px', borderTop: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
             <a
               href={`/video-feed/${video.id}`}
               style={{ fontSize: '11px', color: '#6366f1', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px', textDecoration: 'none', fontWeight: 600 }}
             >
               Analysis →
             </a>
-            {video.transcript && (
+            {localTranscript ? (
               <button
                 onClick={() => setShowTranscript(!showTranscript)}
                 style={{ fontSize: '11px', color: '#555', background: 'none', border: '1px solid #2a2a2a', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px' }}
               >
                 {showTranscript ? 'Hide' : 'Transcript'}
               </button>
+            ) : (
+              <span style={{ fontSize: '11px', color: '#444', fontStyle: 'italic' }}>No transcript</span>
             )}
           </div>
           <a
@@ -188,10 +199,10 @@ export function VideoCard({ video, onViewed }: { video: VideoItemData; onViewed?
         </div>
 
         {/* Transcript accordion */}
-        {showTranscript && video.transcript && (
+        {showTranscript && localTranscript && (
           <div style={{ backgroundColor: '#0a0a0a', border: '1px solid #1f1f1f', borderRadius: '8px', padding: '12px', maxHeight: '200px', overflowY: 'auto' }}>
             <p style={{ fontSize: '11px', color: '#666', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-wrap' }}>
-              {video.transcript}
+              {localTranscript}
             </p>
           </div>
         )}
