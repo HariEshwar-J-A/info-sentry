@@ -2,8 +2,8 @@ import { prisma } from '@/lib/prisma'
 
 // Per-million token costs for the chat model (OpenRouter pricing)
 // Update if model changes in openrouter.ts
-const PROMPT_COST_PER_1M  = 0.10  // USD — Gemini 2.0 Flash input
-const COMPL_COST_PER_1M   = 0.40  // USD — Gemini 2.0 Flash output
+const PROMPT_COST_PER_1M  = 0.10  // USD — Gemini 2.5 Flash Lite input
+const COMPL_COST_PER_1M   = 0.40  // USD — Gemini 2.5 Flash Lite output
 
 interface ChatUsage {
   promptTokens:     number
