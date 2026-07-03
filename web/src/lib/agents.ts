@@ -9,7 +9,7 @@ export const AVAILABLE_MODELS = [
   { id: 'moonshotai/kimi-k2.6',             name: 'Kimi K2.6',        tier: 'Premium', desc: 'Best chain-of-thought reasoning' },
   { id: 'deepseek/deepseek-v3.2',            name: 'DeepSeek V3.2',    tier: 'Balanced', desc: 'Smart, fast, cost-effective' },
   { id: 'deepseek/deepseek-r1',              name: 'DeepSeek R1',       tier: 'Premium', desc: 'Deep analysis with reasoning traces' },
-  { id: 'google/gemini-2.5-flash-lite',       name: 'Gemini 2.0 Flash', tier: 'Budget', desc: 'Fast, cheap, strong default for scout/analyst' },
+  { id: 'google/gemini-2.5-flash-lite',       name: 'Gemini 2.5 Flash Lite', tier: 'Budget', desc: 'Fast, cheap, strong default for scout/analyst' },
   { id: 'openai/gpt-4o-mini',               name: 'GPT-4o Mini',      tier: 'Budget', desc: 'Reliable budget option' },
   { id: 'meta-llama/llama-3-8b-instruct',   name: 'Llama 3 8B',       tier: 'Free', desc: 'Free tier fallback' },
 ]

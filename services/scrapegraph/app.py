@@ -92,7 +92,7 @@ def _base_llm() -> dict[str, Any]:
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not set")
 
-    raw_model = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001")
+    raw_model = os.environ.get("SGAI_MODEL", "google/gemini-2.5-flash-lite")
     model_id = _normalize_openrouter_model_id(raw_model)
 
     base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
@@ -200,7 +200,7 @@ def _run_follow_redirects(url: str) -> dict[str, str]:
 @app.on_event("startup")
 def _log_build_info() -> None:
     _patch_scrapegraph_abstract_graph_llm()
-    raw = os.environ.get("SGAI_MODEL", "google/gemini-2.0-flash-001")
+    raw = os.environ.get("SGAI_MODEL", "google/gemini-2.5-flash-lite")
     log.info(
         "scrapegraphai %s — SGAI_MODEL %r → ChatOpenAI model %r",
         _scrapegraphai_version(),

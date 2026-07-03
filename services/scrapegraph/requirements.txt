@@ -4,3 +4,7 @@ uvicorn[standard]>=0.32.0,<1
 pydantic>=2.0.0,<3
 # Pin ScrapeGraphAI: unpinned/git installs can reject OpenRouter unless model_instance is honored.
 scrapegraphai==1.20.1
+# scrapegraphai 1.20.1 imports langchain.output_parsers — removed in langchain 1.x
+langchain>=0.2.14,<1.0.0
+langchain-community>=0.2.9,<0.4.0
+langchain-openai>=0.1.22,<0.3.0

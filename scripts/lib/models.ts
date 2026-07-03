@@ -44,7 +44,7 @@ export const DEEPSEEK_V3: ModelConfig = {
   security: "medium",
 };
 
-// Tier 2: Balanced ($0.10-0.40/1M) — Gemini Flash Lite default for analyst / scout pipelines
+// Tier 2: Balanced ($0.10-0.40/1M) — Gemini 2.5 Flash Lite default for analyst / scout pipelines
 export const TIER_2_BALANCED: ModelConfig = {
   id: "google/gemini-2.5-flash-lite",
   name: "Gemini 2.5 Flash Lite",
