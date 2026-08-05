@@ -26,7 +26,7 @@ docker_available() {
 }
 
 colima_running() {
-  command -v colima &>/dev/null && colima status 2>/dev/null | grep -q "running"
+  command -v colima &>/dev/null && colima status &>/dev/null
 }
 
 ensure_docker_runtime() {
@@ -180,25 +180,24 @@ cmd_start() {
   ok "Web build complete"
 
   echo ""
-  info "Starting application services…"
-  # Defensive: if PID files were lost, ensure ports are free before starting.
-  if lsof -i :18790 2>/dev/null | grep -q "(LISTEN)"; then
-    warn "Port 18790 already in use — killing listener(s)"
-    lsof -i :18790 2>/dev/null | awk '/\\(LISTEN\\)/ {print $2}' | xargs kill -9 2>/dev/null || true
-  fi
-  if lsof -i :3001 2>/dev/null | grep -q "(LISTEN)"; then
-    warn "Port 3001 already in use — killing listener(s)"
-    lsof -i :3001 2>/dev/null | awk '/\\(LISTEN\\)/ {print $2}' | xargs kill -9 2>/dev/null || true
-  fi
-  start_service gateway  openclaw --profile info-sentry gateway --port 18790
-  start_service web      npm run --prefix "$ROOT/web" start
-  start_service bot      npx --prefix "$ROOT" tsx "$ROOT/scripts/telegram-bot.ts"
-
-  # 3. Start Cloudflare Tunnel if configured
-  if command -v cloudflared &>/dev/null && [ -f "$HOME/.cloudflared/config.yml" ]; then
-    start_service tunnel cloudflared tunnel run info-sentry
-    ok "Cloudflare Tunnel started"
-  fi
+  info "Loading LaunchAgents (all services)…"
+  local la_dir="$HOME/Library/LaunchAgents"
+  for plist in \
+    "$la_dir/com.infosentry.colima.plist" \
+    "$la_dir/com.infosentry.chromadb.plist" \
+    "$la_dir/com.infosentry.web.plist" \
+    "$la_dir/com.infosentry.bot.plist" \
+    "$la_dir/com.infosentry.cron.plist" \
+    "$la_dir/com.infosentry.cloudflared.plist" \
+    "$la_dir/ai.openclaw.info-sentry.plist"; do
+    local label; label="$(basename "$plist" .plist)"
+    if [ -f "$plist" ]; then
+      launchctl unload "$plist" 2>/dev/null || true
+      launchctl load "$plist" \
+        && ok "Loaded $label" \
+        || warn "Could not load $label"
+    fi
+  done
 
   echo ""
   ok "All services running."
@@ -210,15 +209,66 @@ cmd_start() {
 }
 
 cmd_stop() {
-  info "Stopping application services…"
+  local la_dir="$HOME/Library/LaunchAgents"
+
+  # 1. Unload ALL infosentry-related LaunchAgents first — KeepAlive will
+  #    immediately restart any killed process unless the keepalive guard is removed.
+  #    Includes the openclaw info-sentry gateway (ai.openclaw.info-sentry).
+  info "Unloading LaunchAgents…"
+  for plist in \
+    "$la_dir/com.infosentry.colima.plist" \
+    "$la_dir/com.infosentry.cloudflared.plist" \
+    "$la_dir/com.infosentry.cron.plist" \
+    "$la_dir/com.infosentry.bot.plist" \
+    "$la_dir/com.infosentry.web.plist" \
+    "$la_dir/com.infosentry.chromadb.plist" \
+    "$la_dir/ai.openclaw.info-sentry.plist"; do
+    local label; label="$(basename "$plist" .plist)"
+    if [ -f "$plist" ]; then
+      launchctl unload "$plist" 2>/dev/null \
+        && ok "Unloaded $label" \
+        || warn "$label was not loaded"
+    fi
+  done
+
+  echo ""
+
+  # 2. Stop any legacy PID-managed processes
+  info "Stopping PID-managed services…"
   stop_service tunnel
   stop_service bot
   stop_service web
   stop_service gateway
 
+  # 3. Kill anything still holding infosentry ports (covers orphaned or slow-exit processes)
+  for port in 18790 3001; do
+    local pid
+    pid=$(lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null || true
+      ok "Killed process $pid on :$port"
+    fi
+  done
+
   echo ""
-  info "Stopping database containers…"
-  cmd_db_down
+
+  # 4. Stop Docker containers — skip ensure_docker_runtime (we are stopping, not starting)
+  info "Stopping Docker containers…"
+  if docker_available && docker info &>/dev/null 2>&1; then
+    "$DOCKER_BIN" compose -f "$ROOT/docker-compose.yml" down \
+      && ok "Docker containers stopped (data volumes preserved)" \
+      || warn "docker compose down encountered errors"
+  else
+    warn "Docker not reachable — skipping container stop"
+  fi
+
+  # 5. Stop Colima VM last
+  info "Stopping Colima VM…"
+  if command -v colima &>/dev/null && colima_running; then
+    colima stop && ok "Colima stopped" || warn "colima stop encountered errors"
+  else
+    warn "Colima not running — skipping"
+  fi
 }
 
 cmd_restart() {
