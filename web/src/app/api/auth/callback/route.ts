@@ -15,6 +15,13 @@ export async function GET(req: Request) {
   const state  = url.searchParams.get('state')
   const error  = url.searchParams.get('error')
 
+  // Google explicitly denied access — user not in OAuth test-users list, or user
+  // cancelled the consent screen. Show the dedicated unauthorized page instead of
+  // a vague inline error.
+  if (error === 'access_denied') {
+    return NextResponse.redirect(`${appUrl}/login/unauthorized`)
+  }
+
   if (error || !code || !state) {
     return NextResponse.redirect(`${appUrl}/login?error=oauth_denied`)
   }
