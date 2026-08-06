@@ -23,8 +23,9 @@ export default function UnauthorizedLoginPage() {
             Unable to sign in
           </h1>
           <p style={{ fontSize: '14px', color: '#8a8a8a', lineHeight: 1.6, margin: 0 }}>
-            This Google account is not authorized to use Info Sentry. If you believe this is a mistake,
-            contact the site owner or sign in with an approved account.
+            This Google account is not authorized to access InfoSentry. If you cancelled by
+            mistake, try signing in again. Otherwise, contact the site owner or use an
+            approved account.
           </p>
         </div>
 
@@ -59,7 +60,7 @@ export default function UnauthorizedLoginPage() {
               textDecoration: 'none',
             }}
           >
-            Try a different account
+            Sign in again / try a different account
           </Link>
         </div>
       </div>
