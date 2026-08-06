@@ -28,17 +28,11 @@
     },
     "deepseek-v3": {
       "provider": "openrouter",
-      "model_id": "deepseek/deepseek-v3.2"
+      "model_id": "deepseek/deepseek-chat-v3.1"
     },
     "gemini-flash": {
       "provider": "openrouter",
       "model_id": "google/gemini-2.5-flash-lite"
-    }
-  },
-
-  "bindings": {
-    "telegram": {
-      "bot_token_env": "TELEGRAM_BOT_TOKEN"
     }
   },
 
@@ -68,11 +62,6 @@
     "manager": {
       "soul": "agents/manager.md",
       "model": "deepseek-v3",
-      "binding": {
-        "type": "telegram",
-        "chat_id_env": "TELEGRAM_ADMIN_ID",
-        "scope": "private"
-      },
       "tools": {
         "exec": {
           "enabled": true,
@@ -90,11 +79,6 @@
     "feedback": {
       "soul": "agents/feedback.md",
       "model": "deepseek-v3",
-      "binding": {
-        "type": "telegram",
-        "chat_id_env": "TELEGRAM_SUPERGROUP_ID",
-        "scope": "group"
-      },
       "tools": {
         "exec": {
           "enabled": true,
