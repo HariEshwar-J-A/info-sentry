@@ -194,6 +194,39 @@ async function cmdRun(chatId: number): Promise<void> {
     .catch((err: Error) => send(chatId, `❌ Pipeline failed: ${err.message.slice(0, 200)}`));
 }
 
+async function cmdRepair(chatId: number): Promise<void> {
+  const db = getOpenClawDb();
+
+  const tracked = ["analyst", "scout", "prediction", "prediction-verifier", "github-scout"];
+  const configs = await db.agentConfig.findMany({
+    where: { agentName: { in: tracked } },
+  });
+
+  const now = Date.now();
+  const lines = tracked.map((name) => {
+    const c = configs.find((x) => x.agentName === name);
+    if (!c) return `• <b>${name}</b>: never run`;
+    const minsAgo = c.lastRunAt ? Math.floor((now - c.lastRunAt.getTime()) / 60_000) : null;
+    const agoStr = minsAgo === null ? "never" : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.floor(minsAgo / 60)}h ago`;
+    const flag = c.lastError ? " ⚠️ last error recorded" : "";
+    return `• <b>${name}</b>: ${agoStr}${flag}`;
+  });
+
+  await send(
+    chatId,
+    `🔧 <b>Agent Health</b>\n\n${lines.join("\n")}\n\n` +
+      `🔄 Re-running analyst pipeline directly (bypasses model)...`,
+  );
+
+  exec("npx", ["tsx", "scripts/pipeline-run.ts"], {
+    cwd: process.cwd(),
+    env: process.env,
+    timeout: 300_000,
+  })
+    .then(() => send(chatId, "✅ <b>Analyst pipeline repaired!</b> Check supergroup for new posts.\n\nUse /run to do a full scout+analyze+predict cycle."))
+    .catch((err: Error) => send(chatId, `❌ Pipeline failed: ${err.message.slice(0, 300)}`));
+}
+
 async function handleCommand(chatId: number, text: string): Promise<void> {
   const cmd = text.split(" ")[0]?.toLowerCase() ?? "";
   try {
@@ -208,6 +241,7 @@ async function handleCommand(chatId: number, text: string): Promise<void> {
             `/budget — Monthly spending\n` +
             `/pending — Predictions awaiting approval\n` +
             `/run — Trigger pipeline now\n` +
+            `/repair — Check agent health &amp; re-run analyst\n` +
             `/help — Show this menu`,
         );
         break;
@@ -218,7 +252,8 @@ async function handleCommand(chatId: number, text: string): Promise<void> {
             `/status — Live system stats\n` +
             `/budget — Current spending breakdown\n` +
             `/pending — Predictions awaiting approval\n` +
-            `/run — Start scrape + analyze + predict now\n\n` +
+            `/run — Start scrape + analyze + predict now\n` +
+            `/repair — Agent health check + re-run analyst pipeline\n\n` +
             `<b>Supergroup buttons:</b>\n` +
             `👍 👎 — Tune your interests\n` +
             `🔍 More on this — See topics\n` +
@@ -238,6 +273,9 @@ async function handleCommand(chatId: number, text: string): Promise<void> {
         break;
       case "/run":
         await cmdRun(chatId);
+        break;
+      case "/repair":
+        await cmdRepair(chatId);
         break;
       default:
         await send(chatId, `❓ Unknown command. Try /help`);
